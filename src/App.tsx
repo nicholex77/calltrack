@@ -874,7 +874,8 @@ export default function App() {
       </div> </> );
 }
 
+import { db } from "./lib/firebase";
 
-
+console.log("🔥 DB object:", db);
 
 
