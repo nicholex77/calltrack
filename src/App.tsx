@@ -24,6 +24,7 @@ const TASK_TYPES = {
   general:   { label:"General Task", color:"#7c3aed", bg:"#f5f3ff" },
 };
 
+const BRAND="#1a56db";
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -36,67 +37,68 @@ textarea,input,select{font-family:inherit;}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes pop{0%{transform:scale(.95);opacity:0}100%{transform:scale(1);opacity:1}}
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
+@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
 .fade-up{animation:fadeUp .22s ease both;}
 .fade-in{animation:fadeIn .18s ease both;}
 .pop{animation:pop .18s ease both;}
 .shake{animation:shake .35s ease;}
 .nav-link{padding:8px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;font-family:inherit;color:#666;transition:all .12s;}
-.nav-link:hover{background:#f3f3f3;color:#111;}
-.nav-link.active{background:#111;color:#fff;}
+.nav-link:hover{background:#eff6ff;color:#1a56db;}
+.nav-link.active{background:#1a56db;color:#fff;}
 .card{background:#fff;border:1.5px solid #ebebeb;border-radius:16px;overflow:hidden;}
 .card-sm{background:#fafafa;border:1.5px solid #ebebeb;border-radius:12px;padding:14px;}
 .task-chip{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer;transition:all .12s;border:1.5px solid transparent;margin-bottom:5px;}
 .task-chip:hover{background:#f7f7f7;}
-.task-chip.active{background:#f3f3f3;border-color:#ddd;}
+.task-chip.active{background:#eff6ff;border-color:#bfdbfe;}
 .counter-btn{width:30px;height:30px;border-radius:8px;border:1.5px solid #e5e5e5;background:#fff;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;color:#555;transition:all .12s;flex-shrink:0;}
-.counter-btn:hover{background:#111;color:#fff;border-color:#111;}
+.counter-btn:hover{background:#1a56db;color:#fff;border-color:#1a56db;}
 .counter-btn:active{transform:scale(.95);}
 .counter-btn.sm{width:24px;height:24px;border-radius:6px;font-size:13px;}
 .num-input{border:1.5px solid #e5e5e5;border-radius:10px;font-size:20px;font-weight:700;text-align:center;padding:7px 2px;font-family:inherit;outline:none;transition:border-color .15s;color:#111;background:#fff;width:100%;min-width:0;}
-.num-input:focus{border-color:#111;}
+.num-input:focus{border-color:#1a56db;}
 .num-input.sm{font-size:15px;padding:5px 2px;border-radius:8px;}
-.primary-btn{background:#111;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;}
-.primary-btn:hover{background:#333;}
+.primary-btn{background:#1a56db;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;}
+.primary-btn:hover{background:#1447c0;}
 .primary-btn:active{transform:scale(.97);}
 .primary-btn:disabled{opacity:.35;cursor:not-allowed;}
 .green-btn{background:#059669;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;}
 .green-btn:hover{background:#047857;}
 .ghost-btn{background:#fff;color:#555;border:1.5px solid #e5e5e5;border-radius:10px;padding:9px 16px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:all .12s;}
-.ghost-btn:hover{border-color:#111;color:#111;}
+.ghost-btn:hover{border-color:#1a56db;color:#1a56db;}
 .danger-btn{background:none;border:none;color:#ccc;font-size:12px;cursor:pointer;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;transition:all .12s;flex-shrink:0;}
 .danger-btn:hover{background:#fee2e2;color:#ef4444;}
-.save-btn{background:#fff;color:#111;border:1.5px solid #111;border-radius:10px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;display:flex;align-items:center;gap:6px;}
-.save-btn:hover{background:#111;color:#fff;}
-.saved-btn{background:#111;color:#fff;border:1.5px solid #111;border-radius:10px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.save-btn{background:#fff;color:#1a56db;border:1.5px solid #1a56db;border-radius:10px;padding:7px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;transition:all .12s;}
+.save-btn:hover{background:#1a56db;color:#fff;}
+.saved-btn{background:#1a56db;color:#fff;border:1.5px solid #1a56db;border-radius:10px;padding:7px 14px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);backdrop-filter:blur(4px);z-index:100;display:flex;align-items:center;justify-content:center;animation:fadeIn .15s ease;padding:20px;}
 .modal{background:#fff;border-radius:20px;padding:26px;width:100%;max-width:460px;box-shadow:0 20px 60px rgba(0,0,0,.15);animation:pop .18s ease;max-height:90vh;overflow-y:auto;}
 .text-input{border:1.5px solid #444;border-radius:10px;padding:10px 13px;font-family:inherit;font-size:14px;color:#fff;background:#1a1a1a;outline:none;transition:border-color .15s;width:100%;}
-.text-input:focus{border-color:#888;}
+.text-input:focus{border-color:#1a56db;}
 .text-input::placeholder{color:#666;}
 .remarks-ta{border:1.5px solid #444;border-radius:10px;padding:10px 13px;font-family:inherit;font-size:13px;color:#fff;background:#1a1a1a;resize:vertical;outline:none;transition:border-color .15s;line-height:1.6;width:100%;}
-.remarks-ta:focus{border-color:#888;}
+.remarks-ta:focus{border-color:#1a56db;}
 .remarks-ta::placeholder{color:#bbb;}
 .progress-track{height:6px;border-radius:99px;background:#f0f0f0;overflow:hidden;}
 .progress-fill{height:100%;border-radius:99px;transition:width .4s ease,background .3s ease;}
 .stat-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;}
 .type-btn{padding:7px 13px;border-radius:9px;border:1.5px solid #e5e5e5;background:#fff;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .1s;color:#555;}
-.type-btn.active{background:#111;border-color:#111;color:#fff;}
+.type-btn.active{background:#1a56db;border-color:#1a56db;color:#fff;}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 20px;border-radius:99px;font-size:13px;font-weight:600;z-index:200;animation:fadeUp .2s ease;white-space:nowrap;pointer-events:none;}
 .export-table{width:100%;border-collapse:collapse;font-size:12px;}
-.export-table th{background:#111;color:#fff;padding:8px 12px;text-align:left;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
+.export-table th{background:#1a56db;color:#fff;padding:8px 12px;text-align:left;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
 .export-table td{padding:8px 12px;border-bottom:1px solid #f0f0f0;white-space:nowrap;}
-.export-table tr:hover td{background:#fafafa;}
+.export-table tr:hover td{background:#eff6ff;}
 .tab-btn{padding:8px 16px;border-radius:9px;border:1.5px solid #e5e5e5;background:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;transition:all .12s;color:#555;}
-.tab-btn.active{background:#111;border-color:#111;color:#fff;}
+.tab-btn.active{background:#1a56db;border-color:#1a56db;color:#fff;}
 .pin-box{width:38px;height:46px;border:2px solid #333;border-radius:10px;font-size:20px;font-weight:800;text-align:center;font-family:inherit;outline:none;transition:border-color .15s,background .15s;background:#111;color:#fff;caret-color:transparent;}
-.pin-box:focus{border-color:#555;background:#222;}
+.pin-box:focus{border-color:#1a56db;background:#222;}
 .pin-box.error{border-color:#ef4444;background:#7f1d1d;}
 .role-card{border:2px solid #e5e5e5;border-radius:20px;padding:28px 20px;cursor:pointer;transition:all .12s;text-align:center;flex:1;user-select:none;}
-.role-card:hover{border-color:#111;background:#f5f5f5;}
-.role-card:active{transform:scale(.96);background:#111;color:#fff;border-color:#111;}
+.role-card:hover{border-color:#1a56db;background:#eff6ff;}
+.role-card:active{transform:scale(.96);background:#1a56db;color:#fff;border-color:#1a56db;}
 .weekly-tab{padding:9px 20px;border-radius:10px;border:1.5px solid #e5e5e5;background:#fff;cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;transition:all .12s;color:#555;}
-.weekly-tab:hover{border-color:#111;color:#111;}
-.weekly-tab.active{background:#111;border-color:#111;color:#fff;}
+.weekly-tab:hover{border-color:#1a56db;color:#1a56db;}
+.weekly-tab.active{background:#1a56db;border-color:#1a56db;color:#fff;}
 .summary-stat{background:#fafafa;border:1.5px solid #ebebeb;border-radius:14px;padding:16px;text-align:center;}
 .confirm-modal{background:#fff;border-radius:20px;padding:28px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.18);animation:pop .18s ease;}
 .danger-solid-btn{background:#ef4444;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;}
@@ -105,8 +107,37 @@ textarea,input,select{font-family:inherit;}
 .lb-row{display:grid;grid-template-columns:32px 1fr 70px 70px 70px 80px;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid #f5f5f5;}
 .lb-row:last-child{border-bottom:none;}
 .member-pick-card{border:1.5px solid #e5e5e5;border-radius:14px;padding:14px 16px;cursor:pointer;transition:all .12s;display:flex;align-items:center;gap:12px;margin-bottom:8px;}
-.member-pick-card:hover{border-color:#111;background:#fafafa;}
-`;
+.member-pick-card:hover{border-color:#1a56db;background:#eff6ff;}
+.title-input{border:none;border-bottom:2px solid #1a56db;border-radius:0;padding:2px 4px;font-family:inherit;font-size:16px;font-weight:800;color:#111;background:transparent;outline:none;width:100%;letter-spacing:-.3px;}
+.title-input::placeholder{color:#bbb;}
+.sidebar-toggle{background:none;border:1.5px solid #e5e5e5;border-radius:8px;width:28px;height:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#888;transition:all .12s;flex-shrink:0;}
+.sidebar-toggle:hover{border-color:#1a56db;color:#1a56db;}
+.hamburger{display:none;background:none;border:none;cursor:pointer;padding:6px;color:#555;}
+.mobile-nav{display:none;position:absolute;top:56px;left:0;right:0;background:#fff;border-bottom:1px solid #ebebeb;padding:8px 16px;z-index:49;animation:slideDown .18s ease;}
+.mobile-nav .nav-link{display:block;width:100%;text-align:left;padding:10px 14px;margin-bottom:2px;}
+@media(max-width:768px){
+  .hamburger{display:flex;align-items:center;justify-content:center;}
+  .desktop-nav{display:none!important;}
+  .mobile-nav{display:block;}
+  .daily-grid{grid-template-columns:1fr!important;}
+  .sidebar-panel{display:none;}
+  .sidebar-panel.open{display:block;}
+  .detail-panel{min-height:0;}
+  .desktop-only{display:none!important;}
+  .mobile-full{width:100%!important;}
+  .page-wrap{padding:16px 14px 80px!important;}
+  .weekly-grid{grid-template-columns:repeat(4,1fr)!important;}
+  .modal{padding:20px 16px;}
+  .lb-row{grid-template-columns:28px 1fr 56px 56px;gap:4px;}
+  .lb-row>div:nth-child(4),.lb-row>div:nth-child(5){display:none;}
+  .mobile-task-bar{display:flex!important;flex-direction:column;}
+}
+@media(max-width:480px){
+  .weekly-grid{grid-template-columns:repeat(2,1fr)!important;}
+  .stat-grid-4{grid-template-columns:repeat(2,1fr)!important;}
+  .perf-grid{grid-template-columns:1fr!important;}
+}
+`
 
 function Counter({ value, onChange, size="normal" }: { value:number; onChange:(v:number)=>void; size?:string }) {
   const isSmall = size==="sm";
@@ -160,7 +191,7 @@ function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|nu
     <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9f9f9",padding:24}}>
       <div style={{width:"100%",maxWidth:440,background:"#fff",borderRadius:24,padding:"36px 32px",boxShadow:"0 8px 40px rgba(0,0,0,.08)",border:"1.5px solid #ebebeb"}}>
         <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{width:48,height:48,borderRadius:14,background:"#111",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
+          <div style={{width:48,height:48,borderRadius:14,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 16px"}}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
           </div>
           <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5,marginBottom:4}}>Who are you?</div>
@@ -170,7 +201,7 @@ function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|nu
           {members.map((m:any)=>(
             <div key={m.id} onClick={()=>onUnlock("member",m.id)}
               style={{display:"flex",alignItems:"center",gap:14,padding:"12px 16px",borderRadius:14,border:"1.5px solid #e5e5e5",cursor:"pointer",transition:"all .12s",background:"#fff"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor="#111";e.currentTarget.style.background="#fafafa";}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="#1a56db";e.currentTarget.style.background="#eff6ff";}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor="#e5e5e5";e.currentTarget.style.background="#fff";}}>
               <div style={{width:42,height:42,borderRadius:12,background:AVATAR_COLORS[m.colorIdx][0],display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(m.name)}</div>
               <span style={{fontWeight:700,fontSize:15,flex:1}}>{m.name}</span>
@@ -184,7 +215,7 @@ function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|nu
   );
 
   return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9f9f9",padding:24}}> <div style={{width:"100%",maxWidth:420,background:"#fff",borderRadius:24,padding:"40px 36px",boxShadow:"0 8px 40px rgba(0,0,0,.08)",border:"1.5px solid #ebebeb",textAlign:"center"}}> <div style={{width:56,height:56,borderRadius:18,background:"#111",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px"}}> <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg> </div> <div style={{fontWeight:800,fontSize:28,letterSpacing:-.6,marginBottom:6}}>CallTrack</div> <div style={{fontSize:13,color:"#aaa",marginBottom:36}}>mudah.my · Sign in to continue</div> {!selected ? (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9f9f9",padding:24}}> <div style={{width:"100%",maxWidth:420,background:"#fff",borderRadius:24,padding:"40px 36px",boxShadow:"0 8px 40px rgba(0,0,0,.08)",border:"1.5px solid #ebebeb",textAlign:"center"}}> <div style={{width:56,height:56,borderRadius:18,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px"}}> <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg> </div> <div style={{fontWeight:800,fontSize:28,letterSpacing:-.6,marginBottom:6}}>CallTrack</div> <div style={{fontSize:13,color:"#aaa",marginBottom:36}}>mudah.my · Sign in to continue</div> {!selected ? (
           <> <div style={{fontSize:12,fontWeight:700,color:"#888",marginBottom:16,textTransform:"uppercase",letterSpacing:.8}}>Select your role</div> <div style={{display:"flex",gap:14,justifyContent:"center"}}> <div className="role-card" onClick={()=>selectRole("manager")}> <div style={{fontWeight:800,fontSize:16}}>Manager</div> <div style={{fontSize:12,color:"#888",marginTop:6,lineHeight:1.5}}>Full access · Export · Settings</div> </div> <div className="role-card" onClick={()=>selectRole("member")}> <div style={{fontWeight:800,fontSize:16}}>Telesales Member</div> <div style={{fontSize:12,color:"#888",marginTop:6,lineHeight:1.5}}>Log tasks · View progress</div> </div> </div> </> ) : (
           <> <div style={{fontSize:15,fontWeight:800,color:"#111",marginBottom:6}}> {selected==="manager"?"Manager":"Telesales Member"} PIN
             </div> <div style={{fontSize:12,color:"#bbb",marginBottom:28}}> Default: <strong style={{color:"#999"}}>{selected==="manager"?"1234":"0000"}</strong> — change anytime in Settings
@@ -224,6 +255,8 @@ export default function App() {
   const [settingIntTarget, setSettingIntTarget]   = useState("");
   const [confirmModal, setConfirmModal]           = useState<{type:string;id:string;title:string}|null>(null);
   const [loggedInMemberId, setLoggedInMemberId]   = useState<string|null>(null);
+  const [sidebarOpen, setSidebarOpen]             = useState(true);
+  const [mobileNavOpen, setMobileNavOpen]         = useState(false);
 
   const modalRef     = useRef<HTMLInputElement>(null);
   const nextColorRef = useRef<number>(0);
@@ -233,7 +266,8 @@ export default function App() {
   useEffect(()=>{ setSelectedTaskId(null); },[currentDate]);
 
   const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(null),2200); };
-  const updateDb  = (fn:(db:any)=>void) => setDb((prev:any)=>{ const next=JSON.parse(JSON.stringify(prev)); fn(next); return next; });
+
+  const updateDb = (fn:(db:any)=>void) => setDb((prev:any)=>{ const next=JSON.parse(JSON.stringify(prev)); fn(next); return next; });
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
 
   const isManager  = role==="manager";
@@ -316,6 +350,10 @@ export default function App() {
 
   const saveDay   = () => { updateDb((db:any)=>{ ensureDay(db,currentDate); db.days[currentDate].saved=true; }); showToast("Day saved — data locked in"); };
   const unsaveDay = () => { updateDb((db:any)=>{ if(db.days?.[currentDate]) db.days[currentDate].saved=false; }); };
+
+  const saveTask   = (taskId:string) => { updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.saved=true; }); showToast("Task saved"); };
+  const unsaveTask = (taskId:string) => { updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.saved=false; }); };
+  const updateTaskTitle = (taskId:string, newTitle:string) => { if(!newTitle.trim()) return; updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.title=newTitle.trim(); }); };
 
   const saveSettings = () => {
     updateDb((db:any)=>{
@@ -571,7 +609,7 @@ export default function App() {
     const aRate=totals.total>0?Math.round(totals.answered/totals.total*100):0;
     const cRate=totals.answered>0?Math.round(totals.interested/totals.answered*100):0;
     return (
-      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div><div style={{fontWeight:800,fontSize:16,letterSpacing:-.3,marginBottom:4}}>{task.title}</div><MemberAvatarRow assignedMembers={assigned}/></div> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Ans: {totals.answered}</span> <span className="stat-badge" style={{background:"#fff1f2",color:"#be123c"}}>N/A: {totals.notAnswered}</span> <span className="stat-badge" style={{background:"#fffbeb",color:"#b45309"}}>Int: {totals.interested}</span> </div> </div> </div> <div style={{padding:20}}> {(callTarget>0||intTarget>0)&&(
+      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div style={{flex:1,minWidth:0}}><input className="title-input" defaultValue={task.title} onBlur={e=>updateTaskTitle(task.id,e.target.value)} placeholder="Task title..."/><div style={{marginTop:6}}><MemberAvatarRow assignedMembers={assigned}/></div></div> <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Ans: {totals.answered}</span> <span className="stat-badge" style={{background:"#fff1f2",color:"#be123c"}}>N/A: {totals.notAnswered}</span> <span className="stat-badge" style={{background:"#fffbeb",color:"#b45309"}}>Int: {totals.interested}</span> </div> <div>{task.saved?<button className="saved-btn" onClick={()=>unsaveTask(task.id)}>Saved</button>:<button className="save-btn" onClick={()=>saveTask(task.id)}>Save</button>}</div> </div> </div> </div> <div style={{padding:20}}> {(callTarget>0||intTarget>0)&&(
             <div style={{background:"#fafafa",border:"1.5px solid #ebebeb",borderRadius:14,padding:16,marginBottom:16}}> <div style={{fontWeight:700,fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:.8,marginBottom:12}}>Team Target Progress</div> {callTarget>0&&<TargetBar label="Total Calls" value={totals.total} target={callTarget*assigned.length}/>}
               {intTarget>0&&<TargetBar label="Interested" value={totals.interested} target={intTarget*assigned.length}/>}
             </div> )}
@@ -584,7 +622,7 @@ export default function App() {
                     <div key={field} className="card-sm" style={{padding:10}}> <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>{label}</div> <Counter value={s[field]} onChange={v=>updateMemberStat(task.id,m.id,field,v)} size="sm"/> </div> ))}
                 </div> </div> );
           })}
-          <div style={{display:"flex",gap:12,marginBottom:12}}> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Answer Rate</span><span style={{fontSize:11,fontWeight:700}}>{aRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${aRate}%`,background:"#111"}}/></div></div> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Conv. Rate</span><span style={{fontSize:11,fontWeight:700}}>{cRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${cRate}%`,background:"#111"}}/></div></div> </div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:7}}>Remarks</div> <textarea className="remarks-ta" rows={2} value={task.remarks} onChange={e=>updateTaskField(task.id,"remarks",e.target.value)} placeholder="Notes for this session..."/> </div> </div> );
+          <div style={{display:"flex",gap:12,marginBottom:12}}> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Answer Rate</span><span style={{fontSize:11,fontWeight:700}}>{aRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${aRate}%`,background:"#1a56db"}}/></div></div> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Conv. Rate</span><span style={{fontSize:11,fontWeight:700}}>{cRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${cRate}%`,background:"#1a56db"}}/></div></div> </div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:7}}>Remarks</div> <textarea className="remarks-ta" rows={2} value={task.remarks} onChange={e=>updateTaskField(task.id,"remarks",e.target.value)} placeholder="Notes for this session..."/> </div> </div> );
   };
 
   const renderWhatsapp = (task:any) => {
@@ -593,7 +631,7 @@ export default function App() {
     const replyRate=totals.sent>0?Math.round(totals.replied/totals.sent*100):0;
     const closeRate=totals.replied>0?Math.round(totals.closed/totals.replied*100):0;
     return (
-      <div className="fade-up"> <div className="card" style={{marginBottom:16}}> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div><div style={{fontWeight:800,fontSize:16,letterSpacing:-.3,marginBottom:4}}>{task.title}</div><MemberAvatarRow assignedMembers={assigned}/></div> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#eff6ff",color:"#2563eb"}}>Sent: {totals.sent}</span> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Replied: {totals.replied}</span> <span className="stat-badge" style={{background:"#ecfdf5",color:"#059669"}}>Closed: {totals.closed}</span> </div> </div> </div> <div style={{padding:"14px 20px"}}> <div style={{display:"flex",gap:12,marginBottom:12}}> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Reply Rate</span><span style={{fontSize:11,fontWeight:700}}>{replyRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${replyRate}%`,background:"#111"}}/></div></div> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Close Rate</span><span style={{fontSize:11,fontWeight:700}}>{closeRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${closeRate}%`,background:"#111"}}/></div></div> </div> <textarea className="remarks-ta" rows={2} value={task.notes} onChange={e=>updateTaskField(task.id,"notes",e.target.value)} placeholder="Overall notes..."/> </div> </div> <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}> <div style={{fontWeight:700,fontSize:14}}>Campaigns <span style={{color:"#999",fontWeight:500,fontSize:13}}>({task.campaigns?.length||0})</span></div> <button className="primary-btn" style={{padding:"7px 13px",fontSize:12}} onClick={()=>{setCampaignTargetId(task.id);setModal("addCampaign");}}>+ Add Campaign</button> </div> {(!task.campaigns||task.campaigns.length===0)&&<div style={{textAlign:"center",padding:"30px",border:"1.5px dashed #e5e5e5",borderRadius:14,color:"#bbb",fontSize:13}}>No campaigns yet.</div>}
+      <div className="fade-up"> <div className="card" style={{marginBottom:16}}> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div style={{flex:1,minWidth:0}}><input className="title-input" defaultValue={task.title} onBlur={e=>updateTaskTitle(task.id,e.target.value)} placeholder="Task title..."/><div style={{marginTop:6}}><MemberAvatarRow assignedMembers={assigned}/></div></div> <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#eff6ff",color:"#2563eb"}}>Sent: {totals.sent}</span> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Replied: {totals.replied}</span> <span className="stat-badge" style={{background:"#ecfdf5",color:"#059669"}}>Closed: {totals.closed}</span> </div> <div>{task.saved?<button className="saved-btn" onClick={()=>unsaveTask(task.id)}>Saved</button>:<button className="save-btn" onClick={()=>saveTask(task.id)}>Save</button>}</div> </div> </div> </div> <div style={{padding:"14px 20px"}}> <div style={{display:"flex",gap:12,marginBottom:12}}> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Reply Rate</span><span style={{fontSize:11,fontWeight:700}}>{replyRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${replyRate}%`,background:"#1a56db"}}/></div></div> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Close Rate</span><span style={{fontSize:11,fontWeight:700}}>{closeRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${closeRate}%`,background:"#1a56db"}}/></div></div> </div> <textarea className="remarks-ta" rows={2} value={task.notes} onChange={e=>updateTaskField(task.id,"notes",e.target.value)} placeholder="Overall notes..."/> </div> </div> <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}> <div style={{fontWeight:700,fontSize:14}}>Campaigns <span style={{color:"#999",fontWeight:500,fontSize:13}}>({task.campaigns?.length||0})</span></div> <button className="primary-btn" style={{padding:"7px 13px",fontSize:12}} onClick={()=>{setCampaignTargetId(task.id);setModal("addCampaign");}}>+ Add Campaign</button> </div> {(!task.campaigns||task.campaigns.length===0)&&<div style={{textAlign:"center",padding:"30px",border:"1.5px dashed #e5e5e5",borderRadius:14,color:"#bbb",fontSize:13}}>No campaigns yet.</div>}
         {task.campaigns?.map((c:any)=>{
           const cReply=c.sent>0?Math.round(c.replied/c.sent*100):0;
           return (
@@ -608,7 +646,7 @@ export default function App() {
     const assigned=task.assignedMembers||[];
     const doneCount=(assigned as any[]).filter((m:any)=>task.memberDone?.[m.id]).length;
     return (
-      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div><div style={{fontWeight:800,fontSize:16,letterSpacing:-.3,marginBottom:4}}>{task.title}</div><MemberAvatarRow assignedMembers={assigned}/></div> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>{doneCount}/{assigned.length} done</span> </div> </div> <div style={{padding:20}}> {assigned.map((m:any)=>(
+      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div style={{flex:1,minWidth:0}}><input className="title-input" defaultValue={task.title} onBlur={e=>updateTaskTitle(task.id,e.target.value)} placeholder="Task title..."/><div style={{marginTop:6}}><MemberAvatarRow assignedMembers={assigned}/></div></div> <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>{doneCount}/{assigned.length} done</span> <div>{task.saved?<button className="saved-btn" onClick={()=>unsaveTask(task.id)}>Saved</button>:<button className="save-btn" onClick={()=>saveTask(task.id)}>Save</button>}</div> </div> </div> </div> <div style={{padding:20}}> {assigned.map((m:any)=>(
             <div key={m.id} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:"1px solid #f5f5f5"}}> <div style={{width:30,height:30,borderRadius:8,background:AVATAR_COLORS[m.colorIdx||0][0],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff"}}>{initials(m.name)}</div> <div style={{flex:1,fontWeight:600,fontSize:14,textDecoration:task.memberDone?.[m.id]?"line-through":"none",color:task.memberDone?.[m.id]?"#bbb":"#111"}}>{m.name}</div> <div onClick={()=>toggleMemberDone(task.id,m.id)} style={{display:"flex",alignItems:"center",gap:6,cursor:"pointer",padding:"6px 12px",borderRadius:9,background:task.memberDone?.[m.id]?"#f0fdf4":"#f5f5f5",border:`1.5px solid ${task.memberDone?.[m.id]?"#86efac":"#e5e5e5"}`,transition:"all .15s"}}> <div style={{width:14,height:14,borderRadius:4,background:task.memberDone?.[m.id]?"#16a34a":"transparent",border:`1.5px solid ${task.memberDone?.[m.id]?"#16a34a":"#ccc"}`,display:"flex",alignItems:"center",justifyContent:"center"}}> {task.memberDone?.[m.id]&&<svg width="8" height="8" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                 </div> <span style={{fontSize:11,fontWeight:700,color:task.memberDone?.[m.id]?"#16a34a":"#555"}}>{task.memberDone?.[m.id]?"Done":"Mark Done"}</span> </div> </div> ))}
           <div style={{marginTop:16}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:7}}>Notes</div> <textarea className="remarks-ta" rows={4} value={task.notes} onChange={e=>updateTaskField(task.id,"notes",e.target.value)} placeholder="Task details and notes..."/> </div> </div> </div> );
@@ -628,7 +666,7 @@ export default function App() {
 
   if(!role) return <PinScreen onUnlock={handleUnlock} db={db}/>;
 
-  const hasUnsaved = dayTasks.length>0 && !dayIsSaved;
+  const hasUnsaved = dayTasks.some((t:any)=>!t.saved);
   const navItems = isManager
     ? [["daily","Daily"],["weekly","Weekly"],["export","Export"],["members","Members"],["settings","Settings"]]
     : [["daily","Daily"],["weekly","Weekly"],["mystats","My Stats"],["export","Export"],["members","Members"]];
@@ -638,33 +676,121 @@ export default function App() {
 
   return (
     <> <style>{CSS}</style> <div style={{minHeight:"100vh",background:"#fff"}}> {/* NAV */}
-        <div style={{borderBottom:"1px solid #ebebeb",background:"#fff",position:"sticky",top:0,zIndex:50}}> <div style={{maxWidth:1100,margin:"0 auto",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56,gap:12}}> <div style={{display:"flex",alignItems:"center",gap:10}}> <div style={{width:30,height:30,borderRadius:9,background:"#111",display:"flex",alignItems:"center",justifyContent:"center"}}> <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg> </div> <span style={{fontWeight:800,fontSize:15,letterSpacing:-.4}}>CallTrack</span> <span style={{fontSize:11,color:"#888",background:"#f3f3f3",padding:"2px 8px",borderRadius:5,fontWeight:600}}>mudah.my</span> </div> <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}> {navItems.map(([p,label])=>(
+        <div style={{borderBottom:"1px solid #ebebeb",background:"#fff",position:"sticky",top:0,zIndex:50}}>
+          <div style={{maxWidth:1100,margin:"0 auto",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56,gap:12}}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div style={{width:30,height:30,borderRadius:9,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+              </div>
+              <span style={{fontWeight:800,fontSize:15,letterSpacing:-.4,color:"#1a56db"}}>CallTrack</span>
+              <span style={{fontSize:11,color:"#888",background:"#f3f3f3",padding:"2px 8px",borderRadius:5,fontWeight:600}}>mudah.my</span>
+            </div>
+            {/* Desktop nav */}
+            <div className="desktop-nav" style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+              {navItems.map(([p,label])=>(
                 <button key={p} className={`nav-link ${page===p?"active":""}`} onClick={()=>setPage(p)} style={{display:"flex",alignItems:"center",gap:4}}>
                   {label}{p==="daily"&&hasUnsaved&&<span className="unsaved-dot"/>}
                 </button>
               ))}
-              <div style={{width:1,height:20,background:"#e5e5e5",margin:"0 4px"}}/> <div style={{fontSize:11,fontWeight:700,color:isManager?"#7c3aed":"#059669",background:isManager?"#f5f3ff":"#ecfdf5",padding:"3px 10px",borderRadius:20}}>{isManager?"Manager":"Telesales Member"}</div> <button className="ghost-btn" style={{padding:"5px 12px",fontSize:12}} onClick={handleLock}>Lock</button> </div> </div> </div> <div style={{maxWidth:1100,margin:"0 auto",padding:"24px 20px 80px"}}> {/*  DAILY  */}
+              <div style={{width:1,height:20,background:"#e5e5e5",margin:"0 4px"}}/>
+              <div style={{fontSize:11,fontWeight:700,color:isManager?"#1a56db":"#059669",background:isManager?"#eff6ff":"#ecfdf5",padding:"3px 10px",borderRadius:20}}>{isManager?"Manager":"Telesales"}</div>
+              <button className="ghost-btn" style={{padding:"5px 12px",fontSize:12}} onClick={handleLock}>Lock</button>
+            </div>
+            {/* Mobile hamburger */}
+            <button className="hamburger" onClick={()=>setMobileNavOpen(v=>!v)}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+          </div>
+          {/* Mobile dropdown nav */}
+          {mobileNavOpen&&(
+            <div className="mobile-nav" onClick={()=>setMobileNavOpen(false)}>
+              {navItems.map(([p,label])=>(
+                <button key={p} className={`nav-link ${page===p?"active":""}`} onClick={()=>setPage(p)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left"}}>
+                  {label}{p==="daily"&&hasUnsaved&&<span className="unsaved-dot"/>}
+                </button>
+              ))}
+              <div style={{borderTop:"1px solid #f0f0f0",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{fontSize:11,fontWeight:700,color:isManager?"#1a56db":"#059669"}}>{isManager?"Manager":"Telesales Member"}</div>
+                <button className="ghost-btn" style={{padding:"5px 12px",fontSize:12}} onClick={handleLock}>Lock</button>
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="page-wrap" style={{maxWidth:1100,margin:"0 auto",padding:"24px 20px 80px"}}> {/*  DAILY  */}
           {page==="daily"&&(
-            <div className="fade-up"> <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,gap:12,flexWrap:"wrap"}}> <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>{dayName(currentDate)}</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{fmt(currentDate)}</div></div> <div style={{display:"flex",alignItems:"center",gap:8}}> <button className="ghost-btn" style={{padding:"7px 11px",fontSize:13}} onClick={()=>setCurrentDate(addDays(currentDate,-1))}>←</button> <input type="date" value={currentDate} onChange={e=>setCurrentDate(e.target.value)} style={{border:"1.5px solid #444",borderRadius:9,padding:"7px 11px",fontSize:13,fontFamily:"inherit",color:"#fff",background:"#1a1a1a",outline:"none",fontWeight:500} as any}/> <button className="ghost-btn" style={{padding:"7px 11px",fontSize:13}} onClick={()=>setCurrentDate(addDays(currentDate,1))}>→</button> {isManager&&(dayIsSaved?<button className="saved-btn" onClick={unsaveDay}>Saved</button>:<button className="save-btn" onClick={saveDay}>Save</button>)}
-                </div> </div> <div style={{display:"grid",gridTemplateColumns:"240px 1fr",gap:16,alignItems:"start"}}> <div> <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}> <div style={{fontWeight:700,fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:.8}}>Tasks ({dayTasks.length})</div> <button onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}} style={{background:"#111",color:"#fff",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button> </div> <div className="card" style={{padding:8}}> {dayTasks.length===0&&(
-                      <div style={{padding:"24px 12px",textAlign:"center",color:"#bbb",fontSize:13}}> No tasks yet
-                        <div style={{marginTop:12}}><button className="primary-btn" style={{fontSize:12,padding:"7px 14px"}} onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}}>+ Add Task</button></div> </div> )}
-                    {dayTasks.map(task=><TaskChip key={task.id} task={task}/>)}
-                  </div> </div> <div> {!selectedTask?(
-                    <div style={{textAlign:"center",padding:"80px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16}}> <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Select a task to view</div> <div style={{color:"#888",fontSize:13,marginBottom:20}}>Click a task on the left to view details</div> <button className="primary-btn" onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}}>+ New Task</button> </div> ):selectedTask.type==="telesales"?renderTelesales(selectedTask):selectedTask.type==="whatsapp"?renderWhatsapp(selectedTask):renderGeneral(selectedTask)}
-                </div> </div> </div> )}
+            <div className="fade-up">
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,gap:12,flexWrap:"wrap"}}>
+                <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>{dayName(currentDate)}</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{fmt(currentDate)}</div></div>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <button className="ghost-btn" style={{padding:"7px 11px",fontSize:13}} onClick={()=>setCurrentDate(addDays(currentDate,-1))}>←</button>
+                  <input type="date" value={currentDate} onChange={e=>setCurrentDate(e.target.value)} style={{border:"1.5px solid #444",borderRadius:9,padding:"7px 11px",fontSize:13,fontFamily:"inherit",color:"#fff",background:"#1a1a1a",outline:"none",fontWeight:500} as any}/>
+                  <button className="ghost-btn" style={{padding:"7px 11px",fontSize:13}} onClick={()=>setCurrentDate(addDays(currentDate,1))}>→</button>
+                </div>
+              </div>
+              <div className="daily-grid" style={{display:"grid",gridTemplateColumns:`${sidebarOpen?"240px":"40px"} 1fr`,gap:16,alignItems:"start",transition:"grid-template-columns .2s ease"}}>
+                {/* Sidebar */}
+                <div className="sidebar-panel open">
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                    {sidebarOpen&&<div style={{fontWeight:700,fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:.8}}>Tasks ({dayTasks.length})</div>}
+                    <div style={{display:"flex",gap:4,marginLeft:sidebarOpen?0:"auto"}}>
+                      {sidebarOpen&&<button onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}} style={{background:"#1a56db",color:"#fff",border:"none",borderRadius:7,width:24,height:24,cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>}
+                      <button className="sidebar-toggle" onClick={()=>setSidebarOpen(v=>!v)} title={sidebarOpen?"Collapse":"Expand"}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d={sidebarOpen?"M15 18l-6-6 6-6":"M9 18l6-6-6-6"}/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  {sidebarOpen&&(
+                    <div className="card" style={{padding:8}}>
+                      {dayTasks.length===0&&(
+                        <div style={{padding:"24px 12px",textAlign:"center",color:"#bbb",fontSize:13}}>No tasks yet
+                          <div style={{marginTop:12}}><button className="primary-btn" style={{fontSize:12,padding:"7px 14px"}} onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}}>+ Add Task</button></div>
+                        </div>
+                      )}
+                      {dayTasks.map((task:any)=><TaskChip key={task.id} task={task}/>)}
+                    </div>
+                  )}
+                  {!sidebarOpen&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:6,marginTop:4}}>
+                      {dayTasks.map((task:any)=>{
+                        const tt=TASK_TYPES[task.type as keyof typeof TASK_TYPES];
+                        return <div key={task.id} onClick={()=>{setSidebarOpen(true);setSelectedTaskId(task.id);}} style={{width:8,height:8,borderRadius:"50%",background:task.id===selectedTaskId?BRAND:tt.color,cursor:"pointer",margin:"0 auto"}} title={task.title}/>;
+                      })}
+                      <button onClick={()=>setSidebarOpen(true)} style={{background:"none",border:"none",cursor:"pointer",color:"#1a56db",fontSize:16,lineHeight:1}}>+</button>
+                    </div>
+                  )}
+                </div>
+                {/* Detail panel */}
+                <div className="detail-panel">
+                  {/* Mobile: show + and task list above detail */}
+                  <div style={{display:"none"}} className="mobile-task-bar">
+                    <div style={{display:"flex",gap:8,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
+                      {dayTasks.map((task:any)=><button key={task.id} onClick={()=>setSelectedTaskId(task.id)} style={{whiteSpace:"nowrap",padding:"6px 12px",borderRadius:20,border:`1.5px solid ${task.id===selectedTaskId?"#1a56db":"#e5e5e5"}`,background:task.id===selectedTaskId?"#eff6ff":"#fff",color:task.id===selectedTaskId?"#1a56db":"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>{task.title}</button>)}
+                      <button onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}} style={{whiteSpace:"nowrap",padding:"6px 12px",borderRadius:20,border:"1.5px solid #1a56db",background:"#1a56db",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Add</button>
+                    </div>
+                  </div>
+                  {!selectedTask?(
+                    <div style={{textAlign:"center",padding:"80px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16}}>
+                      <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Select a task to view</div>
+                      <div style={{color:"#888",fontSize:13,marginBottom:20}}>Click a task on the left to view details</div>
+                      <button className="primary-btn" onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}}>+ New Task</button>
+                    </div>
+                  ):selectedTask.type==="telesales"?renderTelesales(selectedTask):selectedTask.type==="whatsapp"?renderWhatsapp(selectedTask):renderGeneral(selectedTask)}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/*  WEEKLY  */}
           {page==="weekly"&&(
             <div className="fade-up"> <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:12}}> <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Weekly Summary</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{fmt(weekDates[0])} — {fmt(weekDates[6])}</div></div> <div style={{display:"flex",gap:8}}> <button className="ghost-btn" onClick={()=>setWeekOffset(o=>o-1)}>← Prev</button> <button className="ghost-btn" onClick={()=>setWeekOffset(0)}>This Week</button> <button className="ghost-btn" onClick={()=>setWeekOffset(o=>o+1)}>Next →</button> </div> </div> {/* Day strip */}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,marginBottom:24}}> {weekDates.map((date,di)=>{
+              <div className="weekly-grid" style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,marginBottom:24}}> {weekDates.map((date,di)=>{
                   const tasks:any[]=db.days?.[date]?.tasks||[];
                   const totalCalls=tasks.filter((t:any)=>t.type==="telesales").reduce((s:number,t:any)=>s+Object.values(t.memberStats||{}).reduce((a:number,m:any)=>a+(m as any).total,0),0);
                   const totalSent=(tasks as any[]).filter((t:any)=>t.type==="whatsapp").reduce((s:number,t:any)=>s+((t.campaigns||[]) as any[]).reduce((a:number,c:any)=>a+c.sent,0),0);
                   const isToday=date===todayKey(); const saved=db.days?.[date]?.saved;
                   return (
-                    <div key={date} onClick={()=>{setCurrentDate(date);setPage("daily");}} style={{border:`1.5px solid ${isToday?"#111":"#ebebeb"}`,borderRadius:14,padding:"12px 10px",cursor:"pointer",background:isToday?"#111":"#fff",color:isToday?"#fff":"#111",transition:"all .12s"}} onMouseEnter={e=>{if(!isToday){e.currentTarget.style.borderColor="#111";e.currentTarget.style.background="#fafafa";}}} onMouseLeave={e=>{if(!isToday){e.currentTarget.style.borderColor="#ebebeb";e.currentTarget.style.background="#fff";}}}> <div style={{fontSize:10,fontWeight:700,color:isToday?"#aaa":"#888",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{DAYS[di].slice(0,3)}</div> <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>{fmt(date).split(" ")[0]}</div> {tasks.length>0?(<> <div style={{fontSize:16,fontWeight:800}}>{totalCalls}</div><div style={{fontSize:10,color:isToday?"#aaa":"#888",marginBottom:3}}>calls</div> <div style={{fontSize:16,fontWeight:800}}>{totalSent}</div><div style={{fontSize:10,color:isToday?"#aaa":"#888",marginBottom:4}}>sent</div> {saved&&<div style={{fontSize:10,fontWeight:700,color:isToday?"#a3e635":"#65a30d"}}>Saved</div>}
-                      </>):<div style={{fontSize:11,color:isToday?"#666":"#ccc"}}>No data</div>}
+                    <div key={date} onClick={()=>{setCurrentDate(date);setPage("daily");}} style={{border:`1.5px solid ${isToday?"#1a56db":"#ebebeb"}`,borderRadius:14,padding:"12px 10px",cursor:"pointer",background:isToday?"#1a56db":"#fff",color:isToday?"#fff":"#111",transition:"all .12s"}} onMouseEnter={e=>{if(!isToday){e.currentTarget.style.borderColor="#1a56db";e.currentTarget.style.background="#eff6ff";}}} onMouseLeave={e=>{if(!isToday){e.currentTarget.style.borderColor="#ebebeb";e.currentTarget.style.background="#fff";}}}> <div style={{fontSize:10,fontWeight:700,color:isToday?"rgba(255,255,255,.7)":"#888",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{DAYS[di].slice(0,3)}</div> <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>{fmt(date).split(" ")[0]}</div> {tasks.length>0?(<> <div style={{fontSize:16,fontWeight:800}}>{totalCalls}</div><div style={{fontSize:10,color:isToday?"rgba(255,255,255,.7)":"#888",marginBottom:3}}>calls</div> <div style={{fontSize:16,fontWeight:800}}>{totalSent}</div><div style={{fontSize:10,color:isToday?"rgba(255,255,255,.7)":"#888",marginBottom:4}}>sent</div> {saved&&<div style={{fontSize:10,fontWeight:700,color:isToday?"#dbeafe":"#65a30d"}}>Saved</div>}
+                      </>):<div style={{fontSize:11,color:isToday?"rgba(255,255,255,.5)":"#ccc"}}>No data</div>}
                     </div> );
                 })}
               </div> {/* Weekly tab switcher */}
@@ -844,7 +970,7 @@ export default function App() {
           <div className="modal-overlay" onClick={()=>setModal(null)}> <div className="modal" onClick={e=>e.stopPropagation()}> <div style={{fontWeight:800,fontSize:18,marginBottom:4,letterSpacing:-.3}}>New Task</div> <div style={{fontSize:13,color:"#888",marginBottom:18}}>Choose a type, assign members, and set a title</div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Type</div> <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{Object.entries(TASK_TYPES).map(([k,v])=><button key={k} className={`type-btn ${newTaskType===k?"active":""}`} onClick={()=>setNewTaskType(k)}>{v.label}</button>)}</div> </div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Assign Telesales Members <span style={{color:"#999",fontWeight:400}}>(select one or more)</span></div> {members.length===0?(
                   <div style={{padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:10,fontSize:13,color:"#92400e"}}>No members. <span style={{fontWeight:700,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setModal(null);setPage("members");}}>Add one →</span></div> ):(
                   <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:200,overflowY:"auto"}}> {members.map((m:any)=>{ const sel=newTaskMemberIds.includes(m.id); return (
-                      <div key={m.id} onClick={()=>toggleMemberSelection(m.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,border:`1.5px solid ${sel?"#111":"#e5e5e5"}`,background:sel?"#f9f9f9":"#fff",cursor:"pointer",transition:"all .12s"}}> <div style={{width:28,height:28,borderRadius:8,background:AVATAR_COLORS[m.colorIdx][0],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff"}}>{initials(m.name)}</div> <span style={{flex:1,fontWeight:600,fontSize:13}}>{m.name}</span> <div style={{width:16,height:16,borderRadius:4,background:sel?"#111":"transparent",border:`1.5px solid ${sel?"#111":"#ccc"}`,display:"flex",alignItems:"center",justifyContent:"center"}}> {sel&&<svg width="8" height="8" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      <div key={m.id} onClick={()=>toggleMemberSelection(m.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,border:`1.5px solid ${sel?"#1a56db":"#e5e5e5"}`,background:sel?"#eff6ff":"#fff",cursor:"pointer",transition:"all .12s"}}> <div style={{width:28,height:28,borderRadius:8,background:AVATAR_COLORS[m.colorIdx][0],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff"}}>{initials(m.name)}</div> <span style={{flex:1,fontWeight:600,fontSize:13}}>{m.name}</span> <div style={{width:16,height:16,borderRadius:4,background:sel?"#1a56db":"transparent",border:`1.5px solid ${sel?"#1a56db":"#ccc"}`,display:"flex",alignItems:"center",justifyContent:"center"}}> {sel&&<svg width="8" height="8" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                         </div> </div> );})}
                   </div> )}
               </div> <div style={{marginBottom:20}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Title</div> <input ref={modalRef} className="text-input" value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder={newTaskType==="telesales"?"e.g. Morning Call Session":newTaskType==="whatsapp"?"e.g. April Follow-up":"e.g. Prepare weekly report"}/> </div> <div style={{display:"flex",gap:10}}> <button className="ghost-btn" style={{flex:1}} onClick={()=>{setModal(null);setNewTaskTitle("");}}>Cancel</button> <button className="primary-btn" style={{flex:1}} onClick={addTask} disabled={!newTaskTitle.trim()||newTaskMemberIds.length===0||members.length===0}>Create Task</button> </div> </div> </div> )}
@@ -873,9 +999,6 @@ export default function App() {
         {toast&&<div className="toast">{toast}</div>}
       </div> </> );
 }
-
 import { db } from "./lib/firebase";
 
 console.log("🔥 DB object:", db);
-
-
