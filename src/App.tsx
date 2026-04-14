@@ -269,13 +269,16 @@ export default function App() {
 
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
+    console.log("Supabase init starting...");
+
     // 1. Load latest data from Supabase on mount
     loadRemote().then(data=>{
+      console.log("Supabase loadRemote result:", data);
       if(data && Object.keys(data).length>0){
         saveLocal(data);
         setDb(data);
       }
-    });
+    }).catch((err:any)=>console.error("Supabase loadRemote error:", err));
 
     // 2. Subscribe to live changes from other devices
     const channel = supabase
@@ -293,6 +296,7 @@ export default function App() {
         console.log("Supabase channel status:", status);
       });
 
+    console.log("Supabase channel created:", channel);
     return ()=>{ supabase.removeChannel(channel); };
   },[]);
 
