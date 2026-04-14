@@ -265,7 +265,7 @@ export default function App() {
 
   const modalRef     = useRef<HTMLInputElement>(null);
   const nextColorRef = useRef<number>(0);
-  const skipRemoteRef = useRef(false); // prevent echo when we wrote the change ourselves
+  const skipRemoteRef = useRef(0); // timestamp of our last local write
 
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
@@ -285,7 +285,8 @@ export default function App() {
       .channel("calltrack-realtime")
       .on("postgres_changes",{event:"*",schema:"public",table:"calltrack"},(payload:any)=>{
         console.log("Supabase realtime event:", payload);
-        if(skipRemoteRef.current){ skipRemoteRef.current=false; return; }
+        // ignore echo of our own writes for 2 seconds
+        if(Date.now() - skipRemoteRef.current < 2000) return;
         const data = payload.new?.data;
         if(data){
           saveLocal(data);
@@ -310,7 +311,7 @@ export default function App() {
     const next=JSON.parse(JSON.stringify(prev));
     fn(next);
     saveLocal(next);
-    skipRemoteRef.current=true; // our own write, skip the echo
+    skipRemoteRef.current = Date.now(); // mark time of our write
     saveRemote(next);
     return next;
   });
