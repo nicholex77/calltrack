@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { supabase } from "./lib/supabase";
 
 const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 const AVATAR_COLORS = [
@@ -15,8 +16,12 @@ const fmt = (dateStr:string) => { const d=new Date(dateStr+"T00:00:00"); return 
 const dayName = (dateStr:string) => { const d=new Date(dateStr+"T00:00:00"); return d.toLocaleDateString("en-MY",{weekday:"long"}); };
 
 const STORAGE_KEY = "calltrack_v5";
-const load = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"); } catch { return {}; } };
-const save = (data:any) => localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+// localStorage as fast local cache
+const loadLocal  = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"); } catch { return {}; } };
+const saveLocal  = (data:any) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} };
+// Supabase read/write — single row with id='main'
+const loadRemote = async () => { const { data } = await supabase.from("calltrack").select("data").eq("id","main").single(); return data?.data||{}; };
+const saveRemote = (data:any) => supabase.from("calltrack").upsert({id:"main",data,updated_at:new Date().toISOString()}).then(({error})=>{ if(error) console.error("Supabase write error:",error); });
 
 const TASK_TYPES = {
   telesales: { label:"Telesales Call", color:"#2563eb", bg:"#eff6ff" },
@@ -230,7 +235,7 @@ function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|nu
 
 //  Main App 
 export default function App() {
-  const [db, setDb]                   = useState(load);
+  const [db, setDb]                   = useState(loadLocal);
   const [role, setRole]               = useState<string|null>(null);
   const [page, setPage]               = useState("daily");
   const [currentDate, setCurrentDate] = useState(todayKey);
@@ -260,14 +265,48 @@ export default function App() {
 
   const modalRef     = useRef<HTMLInputElement>(null);
   const nextColorRef = useRef<number>(0);
+  const skipRemoteRef = useRef(false); // prevent echo when we wrote the change ourselves
 
-  useEffect(()=>{ save(db); },[db]);
+  // ── Supabase real-time sync ──────────────────────────────────────────────────
+  useEffect(()=>{
+    // 1. Load latest data from Supabase on mount
+    loadRemote().then(data=>{
+      if(data && Object.keys(data).length>0){
+        saveLocal(data);
+        setDb(data);
+      }
+    });
+
+    // 2. Subscribe to live changes from other devices
+    const channel = supabase
+      .channel("calltrack-changes")
+      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"calltrack",filter:"id=eq.main"},(payload:any)=>{
+        if(skipRemoteRef.current){ skipRemoteRef.current=false; return; }
+        const data = payload.new?.data;
+        if(data){
+          saveLocal(data);
+          setDb(data);
+        }
+      })
+      .subscribe();
+
+    return ()=>{ supabase.removeChannel(channel); };
+  },[]);
+
   useEffect(()=>{ if(modal) setTimeout(()=>modalRef.current?.focus(),60); },[modal]);
   useEffect(()=>{ setSelectedTaskId(null); },[currentDate]);
 
   const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(null),2200); };
 
-  const updateDb = (fn:(db:any)=>void) => setDb((prev:any)=>{ const next=JSON.parse(JSON.stringify(prev)); fn(next); return next; });
+  // updateDb — writes locally immediately, then syncs to Supabase
+  const updateDb = (fn:(db:any)=>void) => setDb((prev:any)=>{
+    const next=JSON.parse(JSON.stringify(prev));
+    fn(next);
+    saveLocal(next);
+    skipRemoteRef.current=true; // our own write, skip the echo
+    saveRemote(next);
+    return next;
+  });
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
 
   const isManager  = role==="manager";
@@ -287,7 +326,6 @@ export default function App() {
   };
   const dayTasks:any[]   = db.days?.[currentDate]?.tasks||[];
   const selectedTask:any = dayTasks.find((t:any)=>t.id===selectedTaskId)||null;
-  const dayIsSaved       = db.days?.[currentDate]?.saved||false;
 
   const toggleMemberSelection = (id:string) => setNewTaskMemberIds((prev:string[])=>prev.includes(id)?prev.filter((x:string)=>x!==id):[...prev,id]);
 
@@ -347,9 +385,6 @@ export default function App() {
   const updateCampaignField = (taskId:string, cId:string, field:string, value:any) => {
     updateDb((db:any)=>{ const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!task) return; const c=task.campaigns.find((c:any)=>c.id===cId); if(!c) return; c[field]=(field==="remarks"||field==="name")?value:Math.max(0,parseInt(String(value))||0); });
   };
-
-  const saveDay   = () => { updateDb((db:any)=>{ ensureDay(db,currentDate); db.days[currentDate].saved=true; }); showToast("Day saved — data locked in"); };
-  const unsaveDay = () => { updateDb((db:any)=>{ if(db.days?.[currentDate]) db.days[currentDate].saved=false; }); };
 
   const saveTask   = (taskId:string) => { updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.saved=true; }); showToast("Task saved"); };
   const unsaveTask = (taskId:string) => { updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.saved=false; }); };
@@ -999,6 +1034,3 @@ export default function App() {
         {toast&&<div className="toast">{toast}</div>}
       </div> </> );
 }
-import { db } from "./lib/firebase";
-
-console.log("🔥 DB object:", db);
