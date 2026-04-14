@@ -279,8 +279,9 @@ export default function App() {
 
     // 2. Subscribe to live changes from other devices
     const channel = supabase
-      .channel("calltrack-changes")
-      .on("postgres_changes",{event:"UPDATE",schema:"public",table:"calltrack",filter:"id=eq.main"},(payload:any)=>{
+      .channel("calltrack-realtime")
+      .on("postgres_changes",{event:"*",schema:"public",table:"calltrack"},(payload:any)=>{
+        console.log("Supabase realtime event:", payload);
         if(skipRemoteRef.current){ skipRemoteRef.current=false; return; }
         const data = payload.new?.data;
         if(data){
@@ -288,7 +289,9 @@ export default function App() {
           setDb(data);
         }
       })
-      .subscribe();
+      .subscribe((status:string)=>{
+        console.log("Supabase channel status:", status);
+      });
 
     return ()=>{ supabase.removeChannel(channel); };
   },[]);
