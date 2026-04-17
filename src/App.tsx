@@ -105,6 +105,11 @@ textarea,input,select{font-family:inherit;}
 .weekly-tab:hover{border-color:#1a56db;color:#1a56db;}
 .weekly-tab.active{background:#1a56db;border-color:#1a56db;color:#fff;}
 .summary-stat{background:#fafafa;border:1.5px solid #ebebeb;border-radius:14px;padding:16px;text-align:center;}
+.conv-summary-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;}
+.conv-summary-table th{background:#1a1a1a;color:#fff;padding:9px 14px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;}
+.conv-summary-table td{padding:10px 14px;border-bottom:1px solid #f0f0f0;font-weight:600;}
+.conv-summary-table tr:last-child td{border-bottom:none;}
+.conv-summary-table .highlight{color:#1a56db;font-size:15px;font-weight:800;}
 .confirm-modal{background:#fff;border-radius:20px;padding:28px;width:100%;max-width:380px;box-shadow:0 20px 60px rgba(0,0,0,.18);animation:pop .18s ease;}
 .danger-solid-btn{background:#ef4444;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;transition:all .12s;}
 .danger-solid-btn:hover{background:#dc2626;}
@@ -262,6 +267,7 @@ export default function App() {
   const [loggedInMemberId, setLoggedInMemberId]   = useState<string|null>(null);
   const [sidebarOpen, setSidebarOpen]             = useState(true);
   const [mobileNavOpen, setMobileNavOpen]         = useState(false);
+  const [scriptOpen, setScriptOpen]               = useState(false);
 
   const modalRef     = useRef<HTMLInputElement>(null);
   const nextColorRef = useRef<number>(0);
@@ -472,6 +478,16 @@ export default function App() {
     return rows;
   };
 
+  const buildTelesalesSummaryStats = (rows: any[]) => {
+    const totalCalls     = rows.reduce((s:number,r:any)=>s+(r.Total||0),0);
+    const totalAnswered  = rows.reduce((s:number,r:any)=>s+(r.Answered||0),0);
+    const totalNotAns    = rows.reduce((s:number,r:any)=>s+(r["Not Answered"]||0),0);
+    const totalInterested= rows.reduce((s:number,r:any)=>s+(r.Interested||0),0);
+    const answerRate     = totalCalls>0?Math.round(totalAnswered/totalCalls*100):0;
+    const convRate       = totalAnswered>0?Math.round(totalInterested/totalAnswered*100):0;
+    return {totalCalls,totalAnswered,totalNotAns,totalInterested,answerRate,convRate};
+  };
+
   const getPreviewRows = () => {
     const dates = getExportDates(exportRange);
     let rows: any[] = [];
@@ -504,27 +520,6 @@ export default function App() {
     document.head.appendChild(s);
   });
 
-  const drawPieChart = (canvas: HTMLCanvasElement, slices: {label:string;value:number;color:string}[]) => {
-    const ctx = canvas.getContext("2d")!;
-    const cx = canvas.width/2, cy = canvas.height/2, r = Math.min(cx,cy)-10;
-    const total = slices.reduce((s:number,x)=>s+x.value,0);
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    if(total===0){ ctx.fillStyle="#eee"; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill(); return; }
-    let start = -Math.PI/2;
-    slices.forEach(sl => {
-      const sweep = (sl.value/total)*Math.PI*2;
-      ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,start,start+sweep); ctx.closePath();
-      ctx.fillStyle = sl.color; ctx.fill();
-      ctx.strokeStyle="#fff"; ctx.lineWidth=2; ctx.stroke();
-      start += sweep;
-    });
-    // inner circle (donut)
-    ctx.beginPath(); ctx.arc(cx,cy,r*0.5,0,Math.PI*2);
-    ctx.fillStyle="#fff"; ctx.fill();
-    ctx.fillStyle="#111"; ctx.font="bold 13px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle";
-    ctx.fillText(String(total),cx,cy);
-  };
-
   const exportToPDF = async () => {
     const rows = getPreviewRows();
     if(rows.length===0){ showToast("No data to export"); return; }
@@ -535,7 +530,6 @@ export default function App() {
       // @ts-ignore
       const { jsPDF } = (window as any).jspdf;
       const doc = new jsPDF({ orientation:"landscape", unit:"pt", format:"a4" });
-      const pw = doc.internal.pageSize.getWidth();
 
       // Title
       doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(17,17,17);
@@ -545,45 +539,73 @@ export default function App() {
       doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(120,120,120);
       doc.text(`${rangeLabel}  ·  Generated ${fmt(todayKey())}  ·  mudah.my`, 40, 60);
 
-      // Pie chart
-      const chartSize = 180;
-      const canvas = document.createElement("canvas");
-      canvas.width = chartSize*2; canvas.height = chartSize*2;
-
-      let slices: {label:string;value:number;color:string}[] = [];
+      // Summary table (replaces pie chart)
+      let summaryEndY = 75;
       if(exportTab==="telesales"){
-        const totals = rows.reduce((a:any,r:any)=>({ answered:a.answered+(r.Answered||0), notAns:a.notAns+(r["Not Answered"]||0), interested:a.interested+(r.Interested||0) }),{answered:0,notAns:0,interested:0});
-        slices=[{label:"Answered",value:totals.answered,color:"#16a34a"},{label:"Not Ans.",value:totals.notAns,color:"#ef4444"},{label:"Interested",value:totals.interested,color:"#d97706"}];
+        const summ = buildTelesalesSummaryStats(rows);
+        // @ts-ignore
+        doc.autoTable({
+          head:[["Metric","Value","Rate"]],
+          body:[
+            ["Total Calls Made", String(summ.totalCalls), "—"],
+            ["Total Answered",   String(summ.totalAnswered),  `${summ.answerRate}% answer rate`],
+            ["Total Not Answered",String(summ.totalNotAns),  "—"],
+            ["Total Interested", String(summ.totalInterested),`${summ.convRate}% conversion rate`],
+          ],
+          startY:75,
+          tableWidth:260,
+          styles:{fontSize:9,cellPadding:5},
+          headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:8},
+          columnStyles:{1:{fontStyle:"bold"},2:{textColor:[26,86,219]}},
+          margin:{left:40},
+        });
+        // @ts-ignore
+        summaryEndY = (doc as any).lastAutoTable.finalY + 14;
       } else if(exportTab==="whatsapp"){
         const totals = rows.reduce((a:any,r:any)=>({sent:a.sent+(r.Sent||0),replied:a.replied+(r.Replied||0),closed:a.closed+(r.Closed||0)}),{sent:0,replied:0,closed:0});
-        slices=[{label:"Sent",value:totals.sent,color:"#2563eb"},{label:"Replied",value:totals.replied,color:"#16a34a"},{label:"Closed",value:totals.closed,color:"#059669"}];
+        const replyRate=totals.sent>0?Math.round(totals.replied/totals.sent*100):0;
+        const closeRate=totals.replied>0?Math.round(totals.closed/totals.replied*100):0;
+        // @ts-ignore
+        doc.autoTable({
+          head:[["Metric","Value","Rate"]],
+          body:[
+            ["Total Sent",   String(totals.sent),   "—"],
+            ["Total Replied",String(totals.replied), `${replyRate}% reply rate`],
+            ["Total Closed", String(totals.closed),  `${closeRate}% close rate`],
+          ],
+          startY:75,
+          tableWidth:260,
+          styles:{fontSize:9,cellPadding:5},
+          headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:8},
+          columnStyles:{1:{fontStyle:"bold"},2:{textColor:[26,86,219]}},
+          margin:{left:40},
+        });
+        // @ts-ignore
+        summaryEndY = (doc as any).lastAutoTable.finalY + 14;
       } else {
-        const done = rows.filter((r:any)=>r.Status==="Done").length;
-        slices=[{label:"Done",value:done,color:"#16a34a"},{label:"Pending",value:rows.length-done,color:"#e5e5e5"}];
+        const done=rows.filter((r:any)=>r.Status==="Done").length;
+        // @ts-ignore
+        doc.autoTable({
+          head:[["Metric","Value"]],
+          body:[["Tasks Done",`${done}/${rows.length}`],["Pending",String(rows.length-done)]],
+          startY:75,
+          tableWidth:180,
+          styles:{fontSize:9,cellPadding:5},
+          headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:8},
+          columnStyles:{1:{fontStyle:"bold"}},
+          margin:{left:40},
+        });
+        // @ts-ignore
+        summaryEndY = (doc as any).lastAutoTable.finalY + 14;
       }
 
-      drawPieChart(canvas, slices);
-      const chartImg = canvas.toDataURL("image/png");
-      const chartPx = 130;
-      doc.addImage(chartImg, "PNG", pw-chartPx-40, 30, chartPx, chartPx);
-
-      // Legend
-      let ly = 38;
-      slices.forEach(sl => {
-        const [r,g,b] = [parseInt(sl.color.slice(1,3),16),parseInt(sl.color.slice(3,5),16),parseInt(sl.color.slice(5,7),16)];
-        doc.setFillColor(r,g,b); doc.rect(pw-chartPx-80,ly-7,8,8,"F");
-        doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(80,80,80);
-        doc.text(`${sl.label}: ${sl.value}`, pw-chartPx-68, ly);
-        ly += 14;
-      });
-
-      // Table
+      // Main data table
       const headers = Object.keys(rows[0]);
       // @ts-ignore
       doc.autoTable({
         head:[headers],
         body:rows.map((r:any)=>headers.map(h=>String(r[h]??""))) ,
-        startY:170,
+        startY:summaryEndY,
         styles:{fontSize:7,cellPadding:4,textColor:[30,30,30]},
         headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:7},
         alternateRowStyles:{fillColor:[249,249,249]},
@@ -665,7 +687,20 @@ export default function App() {
                     <div key={field} className="card-sm" style={{padding:10}}> <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>{label}</div> <Counter value={s[field]} onChange={v=>updateMemberStat(task.id,m.id,field,v)} size="sm"/> </div> ))}
                 </div> </div> );
           })}
-          <div style={{display:"flex",gap:12,marginBottom:12}}> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Answer Rate</span><span style={{fontSize:11,fontWeight:700}}>{aRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${aRate}%`,background:"#1a56db"}}/></div></div> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Conv. Rate</span><span style={{fontSize:11,fontWeight:700}}>{cRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${cRate}%`,background:"#1a56db"}}/></div></div> </div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:7}}>Remarks</div> <textarea className="remarks-ta" rows={2} value={task.remarks} onChange={e=>updateTaskField(task.id,"remarks",e.target.value)} placeholder="Notes for this session..."/> </div> </div> );
+          <div style={{display:"flex",gap:12,marginBottom:12}}> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Answer Rate</span><span style={{fontSize:11,fontWeight:700}}>{aRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${aRate}%`,background:"#1a56db"}}/></div></div> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Conv. Rate</span><span style={{fontSize:11,fontWeight:700}}>{cRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${cRate}%`,background:"#1a56db"}}/></div></div> </div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:7}}>Remarks</div> <textarea className="remarks-ta" rows={2} value={task.remarks} onChange={e=>updateTaskField(task.id,"remarks",e.target.value)} placeholder="Notes for this session..."/>
+          {/* Collapsible Call Script */}
+          <div style={{marginTop:14,border:"1.5px solid #e5e5e5",borderRadius:12,overflow:"hidden"}}>
+            <button onClick={()=>setScriptOpen(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#fafafa",border:"none",cursor:"pointer",fontFamily:"inherit"}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#555"}}>Call Script</span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{transform:scriptOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s"}}><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            {scriptOpen&&(
+              <div style={{padding:"12px 14px",borderTop:"1px solid #f0f0f0"}}>
+                <textarea className="remarks-ta" rows={6} value={task.script||""} onChange={e=>updateTaskField(task.id,"script",e.target.value)} placeholder="Write your call script here..."/>
+              </div>
+            )}
+          </div>
+          </div> </div> );
   };
 
   const renderWhatsapp = (task:any) => {
@@ -884,7 +919,28 @@ export default function App() {
 
           {/*  EXPORT (all roles, members see own data only)  */}
           {page==="export"&&(
-            <div className="fade-up"> <div style={{marginBottom:24}}> <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5,marginBottom:4}}>{isManager?"Export to Google Sheets":"My Export"}</div> <div style={{fontSize:13,color:"#888"}}>Download a CSV {isManager?"and import it directly into Google Sheets":"of your personal call data"}</div> </div> <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:20,alignItems:"flex-end"}}> <div> <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:7,textTransform:"uppercase",letterSpacing:.5}}>Task Type</div> <div style={{display:"flex",gap:6}}>{[["telesales","Telesales"],["whatsapp","WhatsApp"],["general","General"]].map(([k,label])=><button key={k} className={`tab-btn ${exportTab===k?"active":""}`} onClick={()=>setExportTab(k)}>{label}</button>)}</div> </div> <div style={{marginLeft:"auto"}}> <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:7,textTransform:"uppercase",letterSpacing:.5}}>Date Range</div> <div style={{display:"flex",gap:6}}>{[["today","Today"],["week","This Week"],["month","Last 30 Days"]].map(([k,label])=><button key={k} className={`tab-btn ${exportRange===k?"active":""}`} onClick={()=>setExportRange(k)}>{label}</button>)}</div> </div> </div> {isManager&&<div style={{background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:14,padding:"14px 18px",marginBottom:20,display:"flex",gap:12,alignItems:"flex-start"}}> <div style={{fontSize:13,color:"#92400e",lineHeight:1.6}}>In Google Sheets: <strong>File → Import → Upload</strong> → select the CSV → choose "Insert new sheet".</div> </div>} {/* Preview table */}
+            <div className="fade-up"> <div style={{marginBottom:24}}> <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5,marginBottom:4}}>{isManager?"Export to Google Sheets":"My Export"}</div> <div style={{fontSize:13,color:"#888"}}>Download a CSV {isManager?"and import it directly into Google Sheets":"of your personal call data"}</div> </div> <div style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:20,alignItems:"flex-end"}}> <div> <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:7,textTransform:"uppercase",letterSpacing:.5}}>Task Type</div> <div style={{display:"flex",gap:6}}>{[["telesales","Telesales"],["whatsapp","WhatsApp"],["general","General"]].map(([k,label])=><button key={k} className={`tab-btn ${exportTab===k?"active":""}`} onClick={()=>setExportTab(k)}>{label}</button>)}</div> </div> <div style={{marginLeft:"auto"}}> <div style={{fontSize:11,fontWeight:700,color:"#888",marginBottom:7,textTransform:"uppercase",letterSpacing:.5}}>Date Range</div> <div style={{display:"flex",gap:6}}>{[["today","Today"],["week","This Week"],["month","Last 30 Days"]].map(([k,label])=><button key={k} className={`tab-btn ${exportRange===k?"active":""}`} onClick={()=>setExportRange(k)}>{label}</button>)}</div> </div> </div> {isManager&&<div style={{background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:14,padding:"14px 18px",marginBottom:20,display:"flex",gap:12,alignItems:"flex-start"}}> <div style={{fontSize:13,color:"#92400e",lineHeight:1.6}}>In Google Sheets: <strong>File → Import → Upload</strong> → select the CSV → choose "Insert new sheet".</div> </div>}
+              {/* Telesales Conversion Summary Table */}
+              {exportTab==="telesales"&&(()=>{
+                const summ=buildTelesalesSummaryStats(previewRows);
+                return (
+                  <div className="card" style={{overflow:"hidden",marginBottom:20}}>
+                    <div style={{padding:"14px 18px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>Conversion Summary</div>
+                    <div style={{overflowX:"auto"}}>
+                      <table className="conv-summary-table">
+                        <thead><tr><th>Metric</th><th>Value</th><th>Rate</th></tr></thead>
+                        <tbody>
+                          <tr><td>Total Calls Made</td><td className="highlight">{summ.totalCalls}</td><td>—</td></tr>
+                          <tr><td>Total Answered</td><td className="highlight">{summ.totalAnswered}</td><td><span style={{fontSize:13,fontWeight:700,color:summ.answerRate>=60?"#16a34a":summ.answerRate>=40?"#d97706":"#ef4444"}}>{summ.answerRate}%</span></td></tr>
+                          <tr><td>Total Not Answered</td><td className="highlight">{summ.totalNotAns}</td><td>—</td></tr>
+                          <tr><td>Total Interested</td><td className="highlight">{summ.totalInterested}</td><td><span style={{fontSize:13,fontWeight:700,color:summ.convRate>=20?"#16a34a":summ.convRate>=10?"#d97706":"#ef4444"}}>{summ.convRate}% conv. rate</span></td></tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* Preview table */}
               <div className="card" style={{overflow:"hidden",marginBottom:24}}> <div style={{padding:"14px 18px",borderBottom:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}> <div><div style={{fontWeight:700,fontSize:14}}>Preview</div><div style={{fontSize:12,color:"#888",marginTop:2}}>{previewRows.length} row{previewRows.length!==1?"s":""}</div></div> <div style={{display:"flex",gap:8}}> <button className="ghost-btn" onClick={exportToPDF} disabled={previewRows.length===0} style={{fontSize:13}}>Export PDF</button> <button className="green-btn" onClick={exportToCSV} disabled={previewRows.length===0}>Export CSV</button> </div> </div> {previewRows.length===0?(
                   <div style={{padding:"40px",textAlign:"center",color:"#bbb",fontSize:13}}>No data found for this filter.</div> ):(
                   <div style={{overflowX:"auto"}}> <table className="export-table"> <thead><tr>{Object.keys(previewRows[0]).map(h=><th key={h}>{h}</th>)}</tr></thead> <tbody>{previewRows.slice(0,15).map((row,i)=><tr key={i}>{Object.values(row).map((v,j)=><td key={j}>{String(v)}</td>)}</tr>)}</tbody> </table> {previewRows.length>15&&<div style={{padding:"10px 16px",fontSize:12,color:"#888",borderTop:"1px solid #f0f0f0"}}>+{previewRows.length-15} more rows in export</div>}
