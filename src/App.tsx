@@ -792,7 +792,19 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                <button className="ghost-btn" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>addLead(task.id)}>+ Add Lead</button>
+                <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                  <button className="ghost-btn" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>addLead(task.id)}>+ Add Lead</button>
+                  {(task.leads||[]).length>0&&(
+                    <button className="ghost-btn" style={{fontSize:12,padding:"6px 12px",display:"flex",alignItems:"center",gap:5}} onClick={()=>{
+                      const lines=(task.leads||[]).map((l:any,i:number)=>`${i+1}. ${l.agentName||"—"}  |  ${l.phone||"—"}  |  ${l.remark||"—"}`);
+                      const text=`Potential Leads — ${task.title}\n${"─".repeat(40)}\n${lines.join("\n")}`;
+                      navigator.clipboard.writeText(text).then(()=>showToast("Leads copied to clipboard"));
+                    }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                      Copy List
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
