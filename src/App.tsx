@@ -269,6 +269,7 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen]             = useState(true);
   const [mobileNavOpen, setMobileNavOpen]         = useState(false);
   const [scriptOpen, setScriptOpen]               = useState(false);
+  const [leadsOpen, setLeadsOpen]                 = useState(false);
   const [syncing, setSyncing]                     = useState(true);
 
   const modalRef     = useRef<HTMLInputElement>(null);
@@ -437,6 +438,16 @@ export default function App() {
   };
   const updateCampaignField = (taskId:string, cId:string, field:string, value:any) => {
     updateDb((db:any)=>{ const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!task) return; const c=task.campaigns.find((c:any)=>c.id===cId); if(!c) return; c[field]=(field==="remarks"||field==="name")?value:Math.max(0,parseInt(String(value))||0); });
+  };
+
+  const addLead = (taskId:string) => {
+    updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t){ if(!t.leads) t.leads=[]; t.leads.push({id:uid(),agentName:"",phone:"",remark:""}); } });
+  };
+  const updateLead = (taskId:string, leadId:string, field:string, value:string) => {
+    updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!t||!t.leads) return; const l=t.leads.find((l:any)=>l.id===leadId); if(l) l[field]=value; });
+  };
+  const removeLead = (taskId:string, leadId:string) => {
+    updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.leads=(t.leads||[]).filter((l:any)=>l.id!==leadId); });
   };
 
   const saveTask   = (taskId:string) => { updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.saved=true; }); showToast("Task saved"); };
@@ -741,6 +752,47 @@ export default function App() {
             {scriptOpen&&(
               <div style={{padding:"12px 14px",borderTop:"1px solid #f0f0f0"}}>
                 <textarea className="remarks-ta" rows={6} value={task.script||""} onChange={e=>updateTaskField(task.id,"script",e.target.value)} placeholder="Write your call script here..."/>
+              </div>
+            )}
+          </div>
+          {/* Potential Leads */}
+          <div style={{marginTop:10,border:"1.5px solid #e5e5e5",borderRadius:12,overflow:"hidden"}}>
+            <button onClick={()=>setLeadsOpen(v=>!v)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#fafafa",border:"none",cursor:"pointer",fontFamily:"inherit"}}>
+              <span style={{fontSize:12,fontWeight:700,color:"#555"}}>Potential Leads <span style={{color:"#aaa",fontWeight:500}}>({(task.leads||[]).length})</span></span>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{transform:leadsOpen?"rotate(180deg)":"rotate(0deg)",transition:"transform .2s"}}><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            {leadsOpen&&(
+              <div style={{padding:"12px 14px",borderTop:"1px solid #f0f0f0"}}>
+                {(task.leads||[]).length>0&&(
+                  <div style={{width:"100%",borderCollapse:"collapse",marginBottom:10,display:"table"}}>
+                    <div style={{display:"table-header-group"}}>
+                      <div style={{display:"table-row"}}>
+                        {["Agent Name","Phone / Store ID","Remark",""].map((h,i)=>(
+                          <div key={i} style={{display:"table-cell",padding:"6px 8px",fontSize:10,fontWeight:700,color:"#888",textTransform:"uppercase",letterSpacing:.5,borderBottom:"1.5px solid #ebebeb",whiteSpace:"nowrap"}}>{h}</div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{display:"table-row-group"}}>
+                      {(task.leads||[]).map((lead:any)=>(
+                        <div key={lead.id} style={{display:"table-row"}}>
+                          <div style={{display:"table-cell",padding:"5px 6px",verticalAlign:"middle"}}>
+                            <input value={lead.agentName} onChange={e=>updateLead(task.id,lead.id,"agentName",e.target.value)} placeholder="Agent name" style={{border:"1.5px solid #e5e5e5",borderRadius:7,padding:"5px 8px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",minWidth:90}}/>
+                          </div>
+                          <div style={{display:"table-cell",padding:"5px 6px",verticalAlign:"middle"}}>
+                            <input value={lead.phone} onChange={e=>updateLead(task.id,lead.id,"phone",e.target.value)} placeholder="Phone / Store ID" style={{border:"1.5px solid #e5e5e5",borderRadius:7,padding:"5px 8px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",minWidth:110}}/>
+                          </div>
+                          <div style={{display:"table-cell",padding:"5px 6px",verticalAlign:"middle"}}>
+                            <input value={lead.remark} onChange={e=>updateLead(task.id,lead.id,"remark",e.target.value)} placeholder="Remark" style={{border:"1.5px solid #e5e5e5",borderRadius:7,padding:"5px 8px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",minWidth:120}}/>
+                          </div>
+                          <div style={{display:"table-cell",padding:"5px 4px",verticalAlign:"middle",textAlign:"right"}}>
+                            <button className="danger-btn" onClick={()=>removeLead(task.id,lead.id)}>×</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button className="ghost-btn" style={{fontSize:12,padding:"6px 12px"}} onClick={()=>addLead(task.id)}>+ Add Lead</button>
               </div>
             )}
           </div>
