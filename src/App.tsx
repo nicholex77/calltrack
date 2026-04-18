@@ -893,7 +893,7 @@ export default function App() {
                       <div style={{color:"#888",fontSize:13,marginBottom:20}}>Click a task on the left to view details</div>
                       <button className="primary-btn" onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}}>+ New Task</button>
                     </div>
-                  ):selectedTask.type==="telesales"?renderTelesales(selectedTask):selectedTask.type==="whatsapp"?renderWhatsapp(selectedTask):renderGeneral(selectedTask)}
+                  ):<React.Fragment key={selectedTask.id}>{selectedTask.type==="telesales"?renderTelesales(selectedTask):selectedTask.type==="whatsapp"?renderWhatsapp(selectedTask):renderGeneral(selectedTask)}</React.Fragment>}
                 </div>
               </div>
             </div>
