@@ -733,7 +733,7 @@ export default function App() {
   const sendEmail = (task:any) => {
     const subject = encodeURIComponent(`blurB Report — ${task.title} (${fmt(currentDate)})`);
     const body    = encodeURIComponent(buildEmailBody(task));
-    const a=document.createElement("a"); a.href=`mailto:${emailTo.trim()}?subject=${subject}&body=${body}`; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailTo.trim())}&su=${subject}&body=${body}`,"_blank");
     setEmailModal(null); setEmailTo("");
   };
 
