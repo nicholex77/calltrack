@@ -43,6 +43,7 @@ textarea,input,select{font-family:inherit;}
 @keyframes pop{0%{transform:scale(.95);opacity:0}100%{transform:scale(1);opacity:1}}
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
 @keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .fade-up{animation:fadeUp .22s ease both;}
 .fade-in{animation:fadeIn .18s ease both;}
 .pop{animation:pop .18s ease both;}
@@ -268,10 +269,11 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen]             = useState(true);
   const [mobileNavOpen, setMobileNavOpen]         = useState(false);
   const [scriptOpen, setScriptOpen]               = useState(false);
+  const [syncing, setSyncing]                     = useState(true);
 
   const modalRef     = useRef<HTMLInputElement>(null);
   const nextColorRef = useRef<number>(0);
-  const skipRemoteRef = useRef(0); // timestamp of our last local write
+  const writerIdRef  = useRef(uid()); // unique ID for this browser session
 
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
@@ -281,23 +283,25 @@ export default function App() {
     loadRemote().then(data=>{
       console.log("Supabase loadRemote result:", data);
       if(data && Object.keys(data).length>0){
-        saveLocal(data);
-        setDb(data);
+        const { __writerId:_, ...clean } = data;
+        saveLocal(clean);
+        setDb(clean);
       }
-    }).catch((err:any)=>console.error("Supabase loadRemote error:", err));
+      setSyncing(false);
+    }).catch((err:any)=>{ console.error("Supabase loadRemote error:", err); setSyncing(false); });
 
     // 2. Subscribe to live changes from other devices
     const channel = supabase
       .channel("calltrack-realtime")
       .on("postgres_changes",{event:"*",schema:"public",table:"calltrack"},(payload:any)=>{
         console.log("Supabase realtime event:", payload);
-        // ignore echo of our own writes for 2 seconds
-        if(Date.now() - skipRemoteRef.current < 2000) return;
-        const data = payload.new?.data;
-        if(data){
-          saveLocal(data);
-          setDb(data);
-        }
+        const incoming = payload.new?.data;
+        if(!incoming) return;
+        // ignore echoes of our own writes by checking the session writer ID
+        if(incoming.__writerId === writerIdRef.current) return;
+        const { __writerId:_, ...clean } = incoming;
+        saveLocal(clean);
+        setDb(clean);
       })
       .subscribe((status:string)=>{
         console.log("Supabase channel status:", status);
@@ -317,8 +321,8 @@ export default function App() {
     const next=JSON.parse(JSON.stringify(prev));
     fn(next);
     saveLocal(next);
-    skipRemoteRef.current = Date.now(); // mark time of our write
-    saveRemote(next);
+    // embed writerId so realtime echo is ignored on this device
+    saveRemote({...next, __writerId: writerIdRef.current});
     return next;
   });
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
@@ -364,21 +368,39 @@ export default function App() {
     if(selectedTaskId===taskId) setSelectedTaskId(null); setConfirmModal(null); showToast("Task removed");
   };
   const doRemoveMember = (id:string) => {
-    updateDb((db:any)=>{ db.members=(db.members||[]).filter((m:any)=>m.id!==id); });
+    updateDb((db:any)=>{
+      db.members=(db.members||[]).filter((m:any)=>m.id!==id);
+      // clean up references in all days/tasks
+      Object.values(db.days||{}).forEach((day:any)=>{
+        (day.tasks||[]).forEach((task:any)=>{
+          task.assignedMembers=(task.assignedMembers||[]).filter((m:any)=>m.id!==id);
+          if(task.memberStats) delete task.memberStats[id];
+          if(task.memberDone)  delete task.memberDone[id];
+        });
+      });
+    });
     setConfirmModal(null); showToast("Member removed");
   };
 
   const updateMemberStat = (taskId:string, memberId:string, field:string, value:number) => {
     const numVal = Math.max(0,parseInt(String(value))||0);
-    updateDb((db:any)=>{ const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!task||!task.memberStats) return; task.memberStats[memberId][field]=numVal; });
-    // warn if answered would exceed total
-    const task=(db.days?.[currentDate]?.tasks as any[])?.find((t:any)=>t.id===taskId);
-    if(task&&task.memberStats?.[memberId]){
-      const s={...task.memberStats[memberId],[field]:numVal};
-      if(field==="answered"||field==="total"){
-        if(s.answered>s.total&&s.total>0) showToast("Warning: Answered exceeds Total calls");
+    updateDb((db:any)=>{
+      const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId);
+      if(!task||!task.memberStats) return;
+      const s=task.memberStats[memberId];
+      if(field==="total"){
+        s.total=numVal;
+        if(s.answered>numVal) s.answered=numVal;
+        if(s.interested>s.answered) s.interested=s.answered;
+      } else if(field==="answered"){
+        s.answered=Math.min(numVal,s.total);
+        if(s.interested>s.answered) s.interested=s.answered;
+      } else if(field==="interested"){
+        s.interested=Math.min(numVal,s.answered);
+      } else {
+        s[field]=numVal;
       }
-    }
+    });
   };
   const updateTaskField = (taskId:string, field:string, value:any) => {
     updateDb((db:any)=>{ const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!task) return; task[field]=value; });
@@ -670,11 +692,12 @@ export default function App() {
 
   const renderTelesales = (task:any) => {
     const assigned=task.assignedMembers||[];
+    const isSheetSync=task.id.startsWith("sheet-sync-");
     const totals=(assigned as any[]).reduce((a:any,m:any)=>{ const s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0}; return {total:a.total+s.total,answered:a.answered+s.answered,notAnswered:a.notAnswered+s.notAnswered,interested:a.interested+s.interested}; },{total:0,answered:0,notAnswered:0,interested:0});
     const aRate=totals.total>0?Math.round(totals.answered/totals.total*100):0;
     const cRate=totals.answered>0?Math.round(totals.interested/totals.answered*100):0;
     return (
-      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div style={{flex:1,minWidth:0}}><input className="title-input" defaultValue={task.title} onBlur={e=>updateTaskTitle(task.id,e.target.value)} placeholder="Task title..."/><div style={{marginTop:6}}><MemberAvatarRow assignedMembers={assigned}/></div></div> <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Ans: {totals.answered}</span> <span className="stat-badge" style={{background:"#fff1f2",color:"#be123c"}}>N/A: {totals.notAnswered}</span> <span className="stat-badge" style={{background:"#fffbeb",color:"#b45309"}}>Int: {totals.interested}</span> </div> <div>{task.saved?<button className="saved-btn" onClick={()=>unsaveTask(task.id)}>Saved</button>:<button className="save-btn" onClick={()=>saveTask(task.id)}>Save</button>}</div> </div> </div> </div> <div style={{padding:20}}> {(callTarget>0||intTarget>0)&&(
+      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div style={{flex:1,minWidth:0}}>{isSheetSync?<div style={{fontWeight:800,fontSize:16,letterSpacing:-.3,marginBottom:6}}>{task.title}</div>:<input className="title-input" defaultValue={task.title} onBlur={e=>updateTaskTitle(task.id,e.target.value)} placeholder="Task title..."/>}<div style={{marginTop:6,display:"flex",alignItems:"center",gap:8}}><MemberAvatarRow assignedMembers={assigned}/>{isSheetSync&&<span style={{fontSize:10,fontWeight:700,color:"#059669",background:"#ecfdf5",padding:"2px 8px",borderRadius:20,border:"1px solid #a7f3d0"}}>Synced from Sheet</span>}</div></div> <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Ans: {totals.answered}</span> <span className="stat-badge" style={{background:"#fff1f2",color:"#be123c"}}>N/A: {totals.notAnswered}</span> <span className="stat-badge" style={{background:"#fffbeb",color:"#b45309"}}>Int: {totals.interested}</span> </div> <div>{task.saved?<button className="saved-btn" onClick={()=>unsaveTask(task.id)}>Saved</button>:<button className="save-btn" onClick={()=>saveTask(task.id)}>Save</button>}</div> </div> </div> </div> <div style={{padding:20}}> {(callTarget>0||intTarget>0)&&(
             <div style={{background:"#fafafa",border:"1.5px solid #ebebeb",borderRadius:14,padding:16,marginBottom:16}}> <div style={{fontWeight:700,fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:.8,marginBottom:12}}>Team Target Progress</div> {callTarget>0&&<TargetBar label="Total Calls" value={totals.total} target={callTarget*assigned.length}/>}
               {intTarget>0&&<TargetBar label="Interested" value={totals.interested} target={intTarget*assigned.length}/>}
             </div> )}
@@ -684,7 +707,7 @@ export default function App() {
             return (
               <div key={m.id} style={{border:"1.5px solid #ebebeb",borderRadius:14,padding:16,marginBottom:12}}> <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}> <div style={{width:34,height:34,borderRadius:10,background:AVATAR_COLORS[m.colorIdx||0][0],display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff"}}>{initials(m.name)}</div> <div style={{flex:1}}><div style={{fontWeight:700,fontSize:14}}>{m.name}</div><div style={{fontSize:11,color:"#888"}}>{mARate}% answer rate</div></div> </div> {(callTarget>0||intTarget>0)&&<div style={{marginBottom:12}}>{callTarget>0&&<TargetBar label="Calls" value={s.total} target={callTarget}/>}{intTarget>0&&<TargetBar label="Interested" value={s.interested} target={intTarget}/>}</div>}
                 <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}> {[{field:"total",label:"Total"},{field:"answered",label:"Answered"},{field:"notAnswered",label:"Not Ans."},{field:"interested",label:"Interested"}].map(({field,label})=>(
-                    <div key={field} className="card-sm" style={{padding:10}}> <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>{label}</div> <Counter value={s[field]} onChange={v=>updateMemberStat(task.id,m.id,field,v)} size="sm"/> </div> ))}
+                    <div key={field} className="card-sm" style={{padding:10}}> <div style={{fontSize:10,fontWeight:700,color:"#888",marginBottom:8,textTransform:"uppercase",letterSpacing:.5}}>{label}</div> {isSheetSync?<div style={{fontSize:20,fontWeight:800,color:"#111",textAlign:"center",padding:"7px 0"}}>{s[field]}</div>:<Counter value={s[field]} onChange={v=>updateMemberStat(task.id,m.id,field,v)} size="sm"/>} </div> ))}
                 </div> </div> );
           })}
           <div style={{display:"flex",gap:12,marginBottom:12}}> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Answer Rate</span><span style={{fontSize:11,fontWeight:700}}>{aRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${aRate}%`,background:"#1a56db"}}/></div></div> <div style={{flex:1}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:11,color:"#555"}}>Conv. Rate</span><span style={{fontSize:11,fontWeight:700}}>{cRate}%</span></div><div className="progress-track"><div className="progress-fill" style={{width:`${cRate}%`,background:"#1a56db"}}/></div></div> </div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:7}}>Remarks</div> <textarea className="remarks-ta" rows={2} value={task.remarks} onChange={e=>updateTaskField(task.id,"remarks",e.target.value)} placeholder="Notes for this session..."/>
@@ -738,7 +761,7 @@ export default function App() {
     else if(task.type==="whatsapp"){ subtitle=`${task.campaigns?.length||0} campaign${task.campaigns?.length!==1?"s":""}`; }
     else { const done=(assigned as any[]).filter((m:any)=>task.memberDone?.[m.id]).length; subtitle=`${done}/${assigned.length} done`; }
     return (
-      <div className={`task-chip ${isActive?"active":""}`} onClick={()=>setSelectedTaskId(task.id)}> <div style={{width:8,height:8,borderRadius:"50%",background:tt.color,flexShrink:0,marginLeft:2}}></div> <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{task.title}</div><div style={{fontSize:11,color:"#999",marginTop:1}}>{subtitle}</div></div> {isManager&&<button className="danger-btn" onClick={e=>{e.stopPropagation();confirmRemoveTask(task.id,task.title);}}>×</button>}
+      <div className={`task-chip ${isActive?"active":""}`} onClick={()=>setSelectedTaskId(task.id)}> <div style={{width:8,height:8,borderRadius:"50%",background:tt.color,flexShrink:0,marginLeft:2}}></div> <div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{task.title}</div><div style={{fontSize:11,color:"#999",marginTop:1}}>{subtitle}</div></div> {isManager&&!task.id.startsWith("sheet-sync-")&&<button className="danger-btn" onClick={e=>{e.stopPropagation();confirmRemoveTask(task.id,task.title);}}>×</button>}
       </div> );
   };
 
@@ -762,6 +785,7 @@ export default function App() {
               </div>
               <span style={{fontWeight:800,fontSize:15,letterSpacing:-.4,color:"#1a56db"}}>CallTrack</span>
               <span style={{fontSize:11,color:"#888",background:"#f3f3f3",padding:"2px 8px",borderRadius:5,fontWeight:600}}>mudah.my</span>
+              {syncing&&<span style={{fontSize:11,color:"#888",fontWeight:600,display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:"#f59e0b",display:"inline-block",animation:"pulse 1s infinite"}}/>Syncing…</span>}
             </div>
             {/* Desktop nav */}
             <div className="desktop-nav" style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
