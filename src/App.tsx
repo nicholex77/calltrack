@@ -226,7 +226,7 @@ function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|nu
   );
 
   return (
-    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9f9f9",padding:24}}> <div style={{width:"100%",maxWidth:420,background:"#fff",borderRadius:24,padding:"40px 36px",boxShadow:"0 8px 40px rgba(0,0,0,.08)",border:"1.5px solid #ebebeb",textAlign:"center"}}> <div style={{width:56,height:56,borderRadius:18,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px"}}> <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg> </div> <div style={{fontWeight:800,fontSize:28,letterSpacing:-.6,marginBottom:6}}>CallTrack</div> <div style={{fontSize:13,color:"#aaa",marginBottom:36}}>mudah.my · Sign in to continue</div> {!selected ? (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f9f9f9",padding:24}}> <div style={{width:"100%",maxWidth:420,background:"#fff",borderRadius:24,padding:"40px 36px",boxShadow:"0 8px 40px rgba(0,0,0,.08)",border:"1.5px solid #ebebeb",textAlign:"center"}}> <div style={{width:56,height:56,borderRadius:18,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 18px"}}> <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg> </div> <div style={{fontWeight:800,fontSize:28,letterSpacing:-.6,marginBottom:6}}>blurB</div> <div style={{fontSize:13,color:"#aaa",marginBottom:36}}>mudah.my · Sign in to continue</div> {!selected ? (
           <> <div style={{fontSize:12,fontWeight:700,color:"#888",marginBottom:16,textTransform:"uppercase",letterSpacing:.8}}>Select your role</div> <div style={{display:"flex",gap:14,justifyContent:"center"}}> <div className="role-card" onClick={()=>selectRole("manager")}> <div style={{fontWeight:800,fontSize:16}}>Manager</div> <div style={{fontSize:12,color:"#888",marginTop:6,lineHeight:1.5}}>Full access · Export · Settings</div> </div> <div className="role-card" onClick={()=>selectRole("member")}> <div style={{fontWeight:800,fontSize:16}}>Telesales Member</div> <div style={{fontSize:12,color:"#888",marginTop:6,lineHeight:1.5}}>Log tasks · View progress</div> </div> </div> </> ) : (
           <> <div style={{fontSize:15,fontWeight:800,color:"#111",marginBottom:6}}> {selected==="manager"?"Manager":"Telesales Member"} PIN
             </div> <div style={{fontSize:12,color:"#bbb",marginBottom:28}}> Default: <strong style={{color:"#999"}}>{selected==="manager"?"1234":"0000"}</strong> — change anytime in Settings
@@ -548,7 +548,7 @@ export default function App() {
     const csvContent=[headers.join(","),...rows.map((r:any)=>headers.map((h:string)=>`"${String(r[h]||"").replace(/"/g,'""')}"`).join(","))].join("\n");
     const encoded="data:text/csv;charset=utf-8,"+encodeURIComponent(csvContent);
     const a=document.createElement("a"); a.href=encoded;
-    a.download=`calltrack_${exportTab}_${exportRange}_${todayKey()}.csv`;
+    a.download=`blurb_${exportTab}_${exportRange}_${todayKey()}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     showToast("CSV exported");
   };
@@ -574,7 +574,7 @@ export default function App() {
       doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(17,17,17);
       const tabLabel = exportTab==="telesales"?"Telesales":exportTab==="whatsapp"?"WhatsApp":"General";
       const rangeLabel = exportRange==="today"?"Today":exportRange==="week"?"This Week":"Last 30 Days";
-      doc.text(`CallTrack — ${tabLabel} Report`, 40, 44);
+      doc.text(`blurB — ${tabLabel} Report`, 40, 44);
       doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(120,120,120);
       doc.text(`${rangeLabel}  ·  Generated ${fmt(todayKey())}  ·  mudah.my`, 40, 60);
 
@@ -652,7 +652,7 @@ export default function App() {
         tableWidth:"auto",
       });
 
-      doc.save(`calltrack_${exportTab}_${exportRange}_${todayKey()}.pdf`);
+      doc.save(`blurb_${exportTab}_${exportRange}_${todayKey()}.pdf`);
       showToast("PDF exported");
     } catch(e) {
       console.error(e);
@@ -804,7 +804,7 @@ export default function App() {
               <div style={{width:30,height:30,borderRadius:9,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
               </div>
-              <span style={{fontWeight:800,fontSize:15,letterSpacing:-.4,color:"#1a56db"}}>CallTrack</span>
+              <span style={{fontWeight:800,fontSize:15,letterSpacing:-.4,color:"#1a56db"}}>blurB</span>
               <span style={{fontSize:11,color:"#888",background:"#f3f3f3",padding:"2px 8px",borderRadius:5,fontWeight:600}}>mudah.my</span>
               {syncing&&<span style={{fontSize:11,color:"#888",fontWeight:600,display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:"#f59e0b",display:"inline-block",animation:"pulse 1s infinite"}}/>Syncing…</span>}
             </div>
