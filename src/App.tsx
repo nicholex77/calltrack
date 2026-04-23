@@ -280,11 +280,13 @@ export default function App() {
   const [scriptOpen, setScriptOpen]               = useState(false);
   const [leadsOpen, setLeadsOpen]                 = useState(false);
   const [contactSearch, setContactSearch]         = useState("");
-  const [contactStatusFilter, setContactStatusFilter] = useState("all");
-  const [contactLeadFilter, setContactLeadFilter] = useState("all");
+  const [contactFilters, setContactFilters]       = useState<Record<string,string[]>>({status:[],lead:[],campaign:[],agent:[]});
+  const [activeFilterDropdown, setActiveFilterDropdown] = useState<string|null>(null);
   const [contactSelectMode, setContactSelectMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
-  const [contactCampaignFilter, setContactCampaignFilter] = useState("all");
+  const [showAssignModal, setShowAssignModal]     = useState(false);
+  const [assignCounts, setAssignCounts]           = useState<Record<string,string>>({});
+  const [assignFromUnassigned, setAssignFromUnassigned] = useState(true);
   const [pendingImport, setPendingImport] = useState<{file:File}|null>(null);
   const [pendingCampaignName, setPendingCampaignName] = useState("");
   const [deletionHistory, setDeletionHistory] = useState<Array<{hid:string,label:string,contacts:any[],timestamp:number}>>([]);
@@ -466,6 +468,23 @@ export default function App() {
 
   const updateContactSalesAgent = (contactId:string, salesAgent:string) => {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.salesAgent=salesAgent; });
+  };
+
+  const assignContactsRandomly = () => {
+    const pool = [...(db.contacts||[])].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
+    const shuffled = pool.sort(()=>Math.random()-.5);
+    const assignments: Record<string,string> = {};
+    let idx = 0;
+    for (const m of (db.members||[])) {
+      const n = Math.max(0, parseInt(assignCounts[m.id]||"0")||0);
+      for (let i=0; i<n && idx<shuffled.length; i++,idx++) assignments[shuffled[idx].id]=m.name;
+    }
+    const total = Object.keys(assignments).length;
+    if (!total) { showToast("No contacts to assign — adjust counts or uncheck 'unassigned only'."); return; }
+    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(assignments[c.id]) c.salesAgent=assignments[c.id]; }); });
+    showToast(`Assigned ${total} contact${total!==1?"s":""} across ${Object.values(assignments).filter((v,i,a)=>a.indexOf(v)===i).length} agents.`);
+    setShowAssignModal(false);
+    setAssignCounts({});
   };
 
   const importContactsFromCSV = (file: File, campaignName: string) => {
@@ -1242,45 +1261,52 @@ export default function App() {
               warm:{label:"Warm", color:"#d97706",bg:"#fffbeb"},
               cold:{label:"Cold", color:"#2563eb",bg:"#eff6ff"},
             };
-            const campaigns = Array.from(new Set(contacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[];
-            const campaignContacts = contactCampaignFilter==="all" ? contacts : contacts.filter((c:any)=>(c.campaign||"")=== contactCampaignFilter);
-            const q = contactSearch.trim().toLowerCase();
-            const filtered = campaignContacts.filter((c:any)=>{
-              if(contactStatusFilter!=="all" && c.status!==contactStatusFilter) return false;
-              if(contactLeadFilter==="unclassified" && c.leadStatus) return false;
-              if(contactLeadFilter!=="all" && contactLeadFilter!=="unclassified" && c.leadStatus!==contactLeadFilter) return false;
-              if(q && !`${c.name} ${c.phone} ${c.company||""}`.toLowerCase().includes(q)) return false;
+            const campaigns    = Array.from(new Set(contacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[];
+            const agentOptions = Array.from(new Set(contacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[];
+            const cf = contactFilters;
+            const q  = contactSearch.trim().toLowerCase();
+            const toggleFilter = (dim:string, val:string) => setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; });
+            const clearFilters = () => setContactFilters({status:[],lead:[],campaign:[],agent:[]});
+            const anyActive = Object.values(cf).some((a:any)=>a.length>0)||q.length>0;
+            const filtered = contacts.filter((c:any)=>{
+              if(cf.status?.length  && !cf.status.includes(c.status)) return false;
+              if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
+              if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
+              if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
+              if(q && !`${c.name} ${c.phone} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
               return true;
             }).sort((a:any,b:any)=>(statusPriority[b.status]||0)-(statusPriority[a.status]||0));
-            const counts:any = {all:campaignContacts.length,interested:0,callback:0,contacted:0};
-            campaignContacts.forEach((c:any)=>{ if(counts[c.status]!==undefined) counts[c.status]++; });
-            const leadCounts:any = {all:campaignContacts.length,hot:0,warm:0,cold:0,unclassified:0};
-            campaignContacts.forEach((c:any)=>{ if(c.leadStatus&&leadCounts[c.leadStatus]!==undefined) leadCounts[c.leadStatus]++; else leadCounts.unclassified++; });
+            const filterDefs = [
+              {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"}]},
+              {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
+              {key:"campaign",label:"Campaign", options:campaigns.map(cp=>({val:cp,label:cp}))},
+              {key:"agent",   label:"Agent",    options:[...agentOptions.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]},
+            ];
             return (
               <div className="fade-up">
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
-                  <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Contacts</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {counts.interested} interested · {counts.callback} callbacks</div></div>
+                  <div>
+                    <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Contacts</div>
+                    <div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {filtered.length} shown{anyActive?" (filtered)":""}</div>
+                  </div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                     {contactSelectMode&&selectedContactIds.size>0&&(
-                      <button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                        Delete ({selectedContactIds.size})
-                      </button>
+                      <button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete ({selectedContactIds.size})</button>
                     )}
                     {contacts.length>0&&!contactSelectMode&&(
-                      <button onClick={()=>{ if(window.confirm(`Delete all ${contacts.length} contacts? This cannot be undone.`)) deleteAllContacts(); }} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                        Delete All
-                      </button>
+                      <button onClick={()=>{ if(window.confirm(`Delete all ${contacts.length} contacts?`)) deleteAllContacts(); }} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete All</button>
                     )}
-                    <button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                      {contactSelectMode?"Cancel":"Select"}
-                    </button>
+                    {members.length>0&&contacts.length>0&&(
+                      <button onClick={()=>setShowAssignModal(true)} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #7c3aed",background:"#fff",color:"#7c3aed",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚡ Distribute</button>
+                    )}
+                    <button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>
                     <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                       ↑ Import CSV
                       <input type="file" accept=".csv" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f){ setPendingCampaignName(f.name.replace(/\.csv$/i,"").trim()); setPendingImport({file:f}); } e.target.value="";}}/>
                     </label>
                   </div>
                 </div>
-                {/* Agent Done / Not Done panel */}
+                {/* Agent panel */}
                 {members.length>0&&(()=>{
                   const assignedNames=new Set(contacts.map((c:any)=>c.salesAgent||"").filter(Boolean));
                   const done=members.filter((m:any)=>assignedNames.has(m.name));
@@ -1324,37 +1350,52 @@ export default function App() {
                     </div>
                   );
                 })()}
-                {/* Search */}
-                <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="Search by name, phone or company…" style={{border:"1.5px solid #e5e5e5",borderRadius:10,padding:"9px 14px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",marginBottom:14,transition:"border-color .15s"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
-                {/* Campaign filter */}
-                {campaigns.length>0&&(
-                  <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
-                    <span style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5,marginRight:4}}>Campaign</span>
-                    <button onClick={()=>setContactCampaignFilter("all")} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactCampaignFilter==="all"?"#7c3aed":"#e5e5e5"}`,background:contactCampaignFilter==="all"?"#7c3aed":"#fff",color:contactCampaignFilter==="all"?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                      All <span style={{opacity:.7}}>({contacts.length})</span>
-                    </button>
-                    {campaigns.map(cp=>(
-                      <button key={cp} onClick={()=>setContactCampaignFilter(cp)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactCampaignFilter===cp?"#7c3aed":"#e5e5e5"}`,background:contactCampaignFilter===cp?"#7c3aed":"#fff",color:contactCampaignFilter===cp?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                        {cp} <span style={{opacity:.7}}>({contacts.filter((c:any)=>c.campaign===cp).length})</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {/* Call status filter */}
-                <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
-                  {(["all","interested","callback","contacted"] as const).map(s=>(
-                    <button key={s} onClick={()=>setContactStatusFilter(s)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactStatusFilter===s?"#1a56db":"#e5e5e5"}`,background:contactStatusFilter===s?"#1a56db":"#fff",color:contactStatusFilter===s?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                      {s==="all"?"All calls":s.charAt(0).toUpperCase()+s.slice(1)} <span style={{opacity:.7}}>({counts[s]??contacts.length})</span>
-                    </button>
-                  ))}
-                </div>
-                {/* Lead status filter */}
-                <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
-                  {([["all","All leads"],["hot","🔴 Hot"],["warm","🟡 Warm"],["cold","🔵 Cold"],["unclassified","Unclassified"]] as const).map(([k,label])=>(
-                    <button key={k} onClick={()=>setContactLeadFilter(k)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactLeadFilter===k?"#111":"#e5e5e5"}`,background:contactLeadFilter===k?"#111":"#fff",color:contactLeadFilter===k?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
-                      {label} <span style={{opacity:.7}}>({leadCounts[k]??0})</span>
-                    </button>
-                  ))}
+                {/* Search + Google-Sheets-style filter bar */}
+                <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
+                  <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="🔍 Search name, phone, store…" style={{flex:1,minWidth:160,border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 12px",fontSize:13,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                  {filterDefs.map(fd=>{
+                    const active=cf[fd.key]||[];
+                    const isOpen=activeFilterDropdown===fd.key;
+                    if(!fd.options.length) return null;
+                    return (
+                      <div key={fd.key} style={{position:"relative"}}>
+                        <button onClick={()=>setActiveFilterDropdown(isOpen?null:fd.key)} style={{padding:"7px 12px",borderRadius:9,border:`1.5px solid ${active.length?"#1a56db":"#e5e5e5"}`,background:active.length?"#eff6ff":"#fff",color:active.length?"#1a56db":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+                          {fd.label}{active.length?<span style={{background:"#1a56db",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:800}}>{active.length}</span>:null} ▾
+                        </button>
+                        {isOpen&&(
+                          <>
+                            <div style={{position:"fixed",inset:0,zIndex:99}} onClick={()=>setActiveFilterDropdown(null)}/>
+                            <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:100,background:"#fff",border:"1.5px solid #e5e5e5",borderRadius:12,padding:"6px 0",boxShadow:"0 8px 24px rgba(0,0,0,.12)",minWidth:180}}>
+                              <div style={{padding:"4px 12px 8px",borderBottom:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                                <span style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5}}>{fd.label}</span>
+                                {active.length>0&&<button onClick={()=>setContactFilters(prev=>({...prev,[fd.key]:[]}))} style={{fontSize:11,color:"#1a56db",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>}
+                              </div>
+                              {fd.options.map(opt=>{
+                                const checked=active.includes(opt.val);
+                                return (
+                                  <label key={opt.val} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 14px",cursor:"pointer",fontSize:13,color:"#333"}} onMouseEnter={e=>(e.currentTarget.style.background="#f9f9f9")} onMouseLeave={e=>(e.currentTarget.style.background="")}>
+                                    <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${checked?"#1a56db":"#ccc"}`,background:checked?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                                      {checked&&<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                                    </div>
+                                    <span style={{flex:1}}>{opt.label}</span>
+                                    <span style={{fontSize:11,color:"#aaa"}}>{contacts.filter((c:any)=>{
+                                      if(fd.key==="status") return c.status===opt.val;
+                                      if(fd.key==="lead") return (c.leadStatus||"unclassified")===opt.val;
+                                      if(fd.key==="campaign") return (c.campaign||"")===opt.val;
+                                      if(fd.key==="agent") return (c.salesAgent||"__none__")===opt.val;
+                                      return false;
+                                    }).length}</span>
+                                    <input type="checkbox" checked={checked} onChange={()=>toggleFilter(fd.key,opt.val)} style={{display:"none"}}/>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {anyActive&&<button onClick={clearFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
                 </div>
                 {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
                 {/* List rows */}
@@ -1657,6 +1698,37 @@ export default function App() {
                 <button className="danger-solid-btn" style={{flex:1}} onClick={()=>confirmModal.type==="task"?doRemoveTask(confirmModal.id):doRemoveMember(confirmModal.id)}>
                   Yes, Remove
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {showAssignModal&&(
+          <div className="modal-overlay" onClick={()=>setShowAssignModal(false)}>
+            <div className="confirm-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,width:"100%"}}>
+              <div style={{fontWeight:800,fontSize:17,marginBottom:4,letterSpacing:-.3}}>⚡ Distribute Contacts</div>
+              <div style={{fontSize:13,color:"#555",marginBottom:16,lineHeight:1.6}}>Set how many contacts each agent receives. They'll be picked randomly from the pool.</div>
+              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:16,cursor:"pointer"}}>
+                <input type="checkbox" checked={assignFromUnassigned} onChange={e=>setAssignFromUnassigned(e.target.checked)} style={{width:15,height:15,cursor:"pointer"}}/>
+                Only assign from contacts with no agent yet
+              </label>
+              <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:18}}>
+                {(db.members||[]).map((m:any)=>(
+                  <div key={m.id} style={{display:"flex",alignItems:"center",gap:12}}>
+                    <div style={{width:28,height:28,borderRadius:8,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(m.name)}</div>
+                    <span style={{flex:1,fontSize:13,fontWeight:600}}>{m.name}</span>
+                    <input type="number" min="0" placeholder="0" value={assignCounts[m.id]||""} onChange={e=>setAssignCounts(prev=>({...prev,[m.id]:e.target.value}))} style={{width:70,border:"1.5px solid #e5e5e5",borderRadius:8,padding:"5px 8px",fontSize:13,fontFamily:"inherit",outline:"none",textAlign:"center"}}/>
+                    <span style={{fontSize:12,color:"#aaa",width:50}}>contacts</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{fontSize:12,color:"#888",marginBottom:16}}>
+                Total to assign: <strong>{Object.values(assignCounts).reduce((s,v)=>s+(parseInt(v)||0),0)}</strong>
+                {" · Pool: "}
+                <strong>{(db.contacts||[]).filter((c:any)=>!(assignFromUnassigned&&c.salesAgent)).length}</strong> available
+              </div>
+              <div style={{display:"flex",gap:10}}>
+                <button className="ghost-btn" style={{flex:1}} onClick={()=>setShowAssignModal(false)}>Cancel</button>
+                <button className="primary-btn" style={{flex:1}} onClick={assignContactsRandomly}>Distribute Randomly</button>
               </div>
             </div>
           </div>
