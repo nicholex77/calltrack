@@ -273,6 +273,8 @@ export default function App() {
   const [contactSearch, setContactSearch]         = useState("");
   const [contactStatusFilter, setContactStatusFilter] = useState("all");
   const [contactLeadFilter, setContactLeadFilter] = useState("all");
+  const [contactSelectMode, setContactSelectMode] = useState(false);
+  const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [emailModal, setEmailModal]               = useState<{task:any}|null>(null);
   const [emailTo, setEmailTo]                     = useState("");
   const [syncing, setSyncing]                     = useState(true);
@@ -407,6 +409,23 @@ export default function App() {
 
   const updateContactLeadStatus = (contactId:string, leadStatus:string|null) => {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
+  };
+
+  const deleteContact = (contactId:string) => {
+    updateDb((db:any)=>{ db.contacts=(db.contacts||[]).filter((c:any)=>c.id!==contactId); });
+    setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
+  };
+
+  const deleteSelectedContacts = () => {
+    updateDb((db:any)=>{ db.contacts=(db.contacts||[]).filter((c:any)=>!selectedContactIds.has(c.id)); });
+    setSelectedContactIds(new Set());
+    setContactSelectMode(false);
+  };
+
+  const deleteAllContacts = () => {
+    updateDb((db:any)=>{ db.contacts=[]; });
+    setSelectedContactIds(new Set());
+    setContactSelectMode(false);
   };
 
   const importContactsFromCSV = (file: File) => {
@@ -1193,10 +1212,25 @@ export default function App() {
               <div className="fade-up">
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
                   <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Contacts</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {counts.interested} interested · {counts.callback} callbacks</div></div>
-                  <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                    ↑ Import CSV
-                    <input type="file" accept=".csv" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f) importContactsFromCSV(f); e.target.value="";}}/>
-                  </label>
+                  <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+                    {contactSelectMode&&selectedContactIds.size>0&&(
+                      <button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                        Delete ({selectedContactIds.size})
+                      </button>
+                    )}
+                    {contacts.length>0&&!contactSelectMode&&(
+                      <button onClick={()=>{ if(window.confirm(`Delete all ${contacts.length} contacts? This cannot be undone.`)) deleteAllContacts(); }} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                        Delete All
+                      </button>
+                    )}
+                    <button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                      {contactSelectMode?"Cancel":"Select"}
+                    </button>
+                    <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                      ↑ Import CSV
+                      <input type="file" accept=".csv" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f) importContactsFromCSV(f); e.target.value="";}}/>
+                    </label>
+                  </div>
                 </div>
                 {/* Search */}
                 <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="Search by name, phone or company…" style={{border:"1.5px solid #e5e5e5",borderRadius:10,padding:"9px 14px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",marginBottom:14,transition:"border-color .15s"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
@@ -1221,15 +1255,25 @@ export default function App() {
                   {filtered.map((c:any)=>{
                     const sm=statusMeta[c.status]||statusMeta.contacted;
                     return (
-                      <div key={c.id} style={{background:"#fff",border:"1.5px solid #ebebeb",borderRadius:16,padding:18,display:"flex",flexDirection:"column",gap:12,transition:"box-shadow .15s"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(0,0,0,.08)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+                      <div key={c.id} onClick={()=>{ if(contactSelectMode){ setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(c.id)?n.delete(c.id):n.add(c.id); return n; }); } }} style={{background:"#fff",border:`1.5px solid ${contactSelectMode&&selectedContactIds.has(c.id)?"#1a56db":"#ebebeb"}`,borderRadius:16,padding:18,display:"flex",flexDirection:"column",gap:12,transition:"box-shadow .15s",cursor:contactSelectMode?"pointer":"default"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(0,0,0,.08)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
                         {/* Header */}
                         <div style={{display:"flex",alignItems:"center",gap:12}}>
+                          {contactSelectMode&&(
+                            <div style={{width:20,height:20,borderRadius:6,border:`2px solid ${selectedContactIds.has(c.id)?"#1a56db":"#ccc"}`,background:selectedContactIds.has(c.id)?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                              {selectedContactIds.has(c.id)&&<svg width="11" height="11" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                            </div>
+                          )}
                           <div style={{width:42,height:42,borderRadius:13,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(c.name||"?")}</div>
                           <div style={{flex:1,minWidth:0}}>
                             <div style={{fontWeight:700,fontSize:15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name||"Unknown"}</div>
                             <div style={{fontSize:12,color:"#888",marginTop:2}}>{c.phone||"—"}{c.company?` · ${c.company}`:""}</div>
                           </div>
                           <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"3px 9px",borderRadius:20,flexShrink:0}}>{sm.label}</span>
+                          {!contactSelectMode&&(
+                            <button onClick={e=>{ e.stopPropagation(); if(window.confirm(`Delete ${c.name||"this contact"}?`)) deleteContact(c.id); }} style={{background:"none",border:"none",cursor:"pointer",color:"#ccc",padding:4,display:"flex",alignItems:"center",flexShrink:0}} title="Delete contact">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                            </button>
+                          )}
                         </div>
                         {/* Agent + date */}
                         <div style={{fontSize:12,color:"#999",display:"flex",gap:8,alignItems:"center"}}>
