@@ -270,6 +270,9 @@ export default function App() {
   const [mobileNavOpen, setMobileNavOpen]         = useState(false);
   const [scriptOpen, setScriptOpen]               = useState(false);
   const [leadsOpen, setLeadsOpen]                 = useState(false);
+  const [contactSearch, setContactSearch]         = useState("");
+  const [contactStatusFilter, setContactStatusFilter] = useState("all");
+  const [contactLeadFilter, setContactLeadFilter] = useState("all");
   const [emailModal, setEmailModal]               = useState<{task:any}|null>(null);
   const [emailTo, setEmailTo]                     = useState("");
   const [syncing, setSyncing]                     = useState(true);
@@ -400,6 +403,10 @@ export default function App() {
     updateDb((db:any)=>{ ensureDay(db,targetDate); db.days[targetDate].tasks.push(copy); });
     setCurrentDate(targetDate); setSelectedTaskId(newId);
     showToast("Task copied to "+fmt(targetDate));
+  };
+
+  const updateContactLeadStatus = (contactId:string, leadStatus:string|null) => {
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
   };
 
   const updateMemberStat = (taskId:string, memberId:string, field:string, value:number) => {
@@ -894,7 +901,7 @@ export default function App() {
 
   const hasUnsaved = dayTasks.some((t:any)=>!t.saved);
   const navItems = isManager
-    ? [["daily","Daily"],["weekly","Weekly"],["export","Export"],["members","Members"],["settings","Settings"]]
+    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["export","Export"],["members","Members"],["settings","Settings"]]
     : [["daily","Daily"],["weekly","Weekly"],["mystats","My Stats"],["export","Export"],["members","Members"]];
 
   const perfSummary = buildPerformanceSummary();
@@ -1065,6 +1072,95 @@ export default function App() {
 
               {members.length===0&&<div style={{textAlign:"center",padding:"40px",color:"#bbb",fontSize:14}}>Add telesales members first to see the breakdown</div>}
             </div> )}
+
+          {/*  CONTACTS  */}
+          {page==="contacts"&&isManager&&(()=>{
+            const contacts:any[] = db.contacts||[];
+            const statusPriority:any = {interested:3,callback:2,contacted:1};
+            const statusMeta:any = {
+              interested:{label:"Interested",color:"#059669",bg:"#f0fdf4"},
+              callback:  {label:"Callback",  color:"#d97706",bg:"#fffbeb"},
+              contacted: {label:"Contacted",  color:"#2563eb",bg:"#eff6ff"},
+            };
+            const leadMeta:any = {
+              hot: {label:"Hot",  color:"#ef4444",bg:"#fff1f2"},
+              warm:{label:"Warm", color:"#d97706",bg:"#fffbeb"},
+              cold:{label:"Cold", color:"#2563eb",bg:"#eff6ff"},
+            };
+            const q = contactSearch.trim().toLowerCase();
+            const filtered = contacts.filter((c:any)=>{
+              if(contactStatusFilter!=="all" && c.status!==contactStatusFilter) return false;
+              if(contactLeadFilter==="unclassified" && c.leadStatus) return false;
+              if(contactLeadFilter!=="all" && contactLeadFilter!=="unclassified" && c.leadStatus!==contactLeadFilter) return false;
+              if(q && !`${c.name} ${c.phone} ${c.company||""}`.toLowerCase().includes(q)) return false;
+              return true;
+            }).sort((a:any,b:any)=>(statusPriority[b.status]||0)-(statusPriority[a.status]||0));
+            const counts:any = {all:contacts.length,interested:0,callback:0,contacted:0};
+            contacts.forEach((c:any)=>{ if(counts[c.status]!==undefined) counts[c.status]++; });
+            const leadCounts:any = {all:contacts.length,hot:0,warm:0,cold:0,unclassified:0};
+            contacts.forEach((c:any)=>{ if(c.leadStatus&&leadCounts[c.leadStatus]!==undefined) leadCounts[c.leadStatus]++; else leadCounts.unclassified++; });
+            return (
+              <div className="fade-up">
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
+                  <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Contacts</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {counts.interested} interested · {counts.callback} callbacks</div></div>
+                </div>
+                {/* Search */}
+                <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="Search by name, phone or company…" style={{border:"1.5px solid #e5e5e5",borderRadius:10,padding:"9px 14px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",marginBottom:14,transition:"border-color .15s"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                {/* Call status filter */}
+                <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
+                  {(["all","interested","callback","contacted"] as const).map(s=>(
+                    <button key={s} onClick={()=>setContactStatusFilter(s)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactStatusFilter===s?"#1a56db":"#e5e5e5"}`,background:contactStatusFilter===s?"#1a56db":"#fff",color:contactStatusFilter===s?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                      {s==="all"?"All calls":s.charAt(0).toUpperCase()+s.slice(1)} <span style={{opacity:.7}}>({counts[s]??contacts.length})</span>
+                    </button>
+                  ))}
+                </div>
+                {/* Lead status filter */}
+                <div style={{display:"flex",gap:6,marginBottom:20,flexWrap:"wrap"}}>
+                  {([["all","All leads"],["hot","🔴 Hot"],["warm","🟡 Warm"],["cold","🔵 Cold"],["unclassified","Unclassified"]] as const).map(([k,label])=>(
+                    <button key={k} onClick={()=>setContactLeadFilter(k)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactLeadFilter===k?"#111":"#e5e5e5"}`,background:contactLeadFilter===k?"#111":"#fff",color:contactLeadFilter===k?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                      {label} <span style={{opacity:.7}}>({leadCounts[k]??0})</span>
+                    </button>
+                  ))}
+                </div>
+                {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:14}}>
+                  {filtered.map((c:any)=>{
+                    const sm=statusMeta[c.status]||statusMeta.contacted;
+                    return (
+                      <div key={c.id} style={{background:"#fff",border:"1.5px solid #ebebeb",borderRadius:16,padding:18,display:"flex",flexDirection:"column",gap:12,transition:"box-shadow .15s"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 4px 20px rgba(0,0,0,.08)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
+                        {/* Header */}
+                        <div style={{display:"flex",alignItems:"center",gap:12}}>
+                          <div style={{width:42,height:42,borderRadius:13,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(c.name||"?")}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:15,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name||"Unknown"}</div>
+                            <div style={{fontSize:12,color:"#888",marginTop:2}}>{c.phone||"—"}{c.company?` · ${c.company}`:""}</div>
+                          </div>
+                          <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"3px 9px",borderRadius:20,flexShrink:0}}>{sm.label}</span>
+                        </div>
+                        {/* Agent + date */}
+                        <div style={{fontSize:12,color:"#999",display:"flex",gap:8,alignItems:"center"}}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                          {c.agentName||"—"} · {c.date?fmt(c.date):"—"}
+                        </div>
+                        {/* Remarks */}
+                        {c.remarks&&<div style={{fontSize:12,color:"#555",lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{c.remarks}</div>}
+                        {/* Lead status toggles */}
+                        <div style={{display:"flex",gap:6,paddingTop:4,borderTop:"1px solid #f5f5f5"}}>
+                          {(["hot","warm","cold"] as const).map(ls=>{
+                            const lm=leadMeta[ls];
+                            const active=c.leadStatus===ls;
+                            return <button key={ls} onClick={()=>updateContactLeadStatus(c.id,active?null:ls)} style={{flex:1,padding:"6px 0",borderRadius:9,border:`1.5px solid ${active?lm.color:"#e5e5e5"}`,background:active?lm.bg:"#fff",color:active?lm.color:"#aaa",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>
+                              {ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {lm.label}
+                            </button>;
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/*  EXPORT (all roles, members see own data only)  */}
           {page==="export"&&(
