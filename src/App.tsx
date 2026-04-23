@@ -12,7 +12,16 @@ const uid = () => Math.random().toString(36).slice(2,9);
 const todayKey = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
 const weekStart = (dateStr:string) => { const d=new Date(dateStr); const day=d.getDay(); const diff=day===0?-6:1-day; const mon=new Date(d); mon.setDate(d.getDate()+diff); return mon.toISOString().split("T")[0]; };
 const addDays = (dateStr:string,n:number) => { const d=new Date(dateStr); d.setDate(d.getDate()+n); return d.toISOString().split("T")[0]; };
-const fmt = (dateStr:string) => { const d=new Date(dateStr+"T00:00:00"); return d.toLocaleDateString("en-MY",{day:"numeric",month:"short",year:"numeric"}); };
+const normalizeDate = (raw:string):string => {
+  if (!raw) return "";
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0,10);
+  const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slash) { let yr=parseInt(slash[3]); if(yr<100) yr+=2000; return `${yr}-${slash[2].padStart(2,"0")}-${slash[1].padStart(2,"0")}`; }
+  const dash = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})$/);
+  if (dash)  { let yr=parseInt(dash[3]);  if(yr<100) yr+=2000; return `${yr}-${dash[2].padStart(2,"0")}-${dash[1].padStart(2,"0")}`; }
+  return raw;
+};
+const fmt = (dateStr:string) => { if(!dateStr) return "—"; const d=new Date(dateStr+"T00:00:00"); if(isNaN(d.getTime())) return dateStr; return d.toLocaleDateString("en-MY",{day:"numeric",month:"short",year:"numeric"}); };
 const dayName = (dateStr:string) => { const d=new Date(dateStr+"T00:00:00"); return d.toLocaleDateString("en-MY",{weekday:"long"}); };
 
 const STORAGE_KEY = "calltrack_v5";
@@ -485,7 +494,9 @@ export default function App() {
 
       const iName    = col("customer_name","client_name","name","contact_name");
       const iPhone   = col("primary_phone","phone_number","phone","mobile");
-      const iCompany = col("agency","company","store_id","store");
+      const iCompany = col("agency","agency_name","company_name","company");
+      const iStoreId = col("store_id","storeid","store_no","store_number","store");
+      const iRenId   = col("ren_id","renid","ren_no","ren");
       const iState   = col("most_frequent_state","remarks","remark","notes","state");
       const iStatus  = col("call_status","status");
       const iInterest= col("interest","interested");
@@ -511,16 +522,18 @@ export default function App() {
         const name    = iName    >= 0 ? row[iName].trim()    : "";
         const phone   = iPhone   >= 0 ? row[iPhone].trim()   : "";
         const company = iCompany >= 0 ? row[iCompany].trim() : "";
+        const storeId = iStoreId >= 0 ? row[iStoreId].trim() : "";
+        const renId   = iRenId   >= 0 ? row[iRenId].trim()   : "";
         const remarks = iState   >= 0 ? row[iState].trim()   : "";
         const agent   = iAgent   >= 0 ? row[iAgent].trim()   : "";
-        const date    = iDate    >= 0 ? row[iDate].trim()    : "";
+        const date    = normalizeDate(iDate >= 0 ? row[iDate].trim() : "");
         const key     = (phone ? stripPhone(phone) : name.toLowerCase().trim());
         if (!key) continue;
 
         const existing = seen[key];
         const inP = PRIORITY[bucket]||0;
         if (!existing || inP > (PRIORITY[existing.status]||0)) {
-          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, company, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
+          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, company, storeId, renId, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
         }
       }
 
@@ -1409,7 +1422,9 @@ export default function App() {
                         <div style={{padding:"4px 24px 24px",flex:1}}>
                           <Field label="Name"            value={c.name||""}/>
                           <Field label="Phone"           value={c.phone||""}/>
-                          <Field label="Company / Agency" value={c.company||""}/>
+                          <Field label="Store ID"           value={c.storeId||""}/>
+                          <Field label="REN ID"             value={c.renId||""}/>
+                          <Field label="Company / Agency"   value={c.company||""}/>
                           <Field label="Remarks / State" value={c.remarks||""}/>
                           <Field label="Agent (from sheet)" value={c.agentName||""}/>
                           <Field label="Date"            value={c.date?fmt(c.date):""}/>
@@ -1436,7 +1451,7 @@ export default function App() {
                             </div>
                           </div>
                           {/* Copy all */}
-                          <button onClick={()=>{ const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Company: ${c.company||""}`,`Status: ${sm.label}`,`Agent: ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n"); navigator.clipboard.writeText(txt); showToast("All details copied"); }} style={{marginTop:18,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All Details</button>
+                          <button onClick={()=>{ const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n"); navigator.clipboard.writeText(txt); showToast("All details copied"); }} style={{marginTop:18,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All Details</button>
                           <button onClick={()=>{ if(window.confirm(`Delete ${c.name||"this contact"}?`)){ deleteContact(c.id); setOpenContactId(null); } }} style={{marginTop:10,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete Contact</button>
                         </div>
                       </div>
