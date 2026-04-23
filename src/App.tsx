@@ -409,6 +409,96 @@ export default function App() {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
   };
 
+  const importContactsFromCSV = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = (e.target?.result as string)||"";
+      const lines = text.split(/\r?\n/).filter(l=>l.trim());
+      if (lines.length < 2) { showToast("CSV has no data rows."); return; }
+
+      // Parse CSV respecting quoted fields
+      const parseRow = (line: string): string[] => {
+        const out: string[] = [];
+        let cur = "", inQ = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') { if (inQ && line[i+1]==='"') { cur+='"'; i++; } else inQ=!inQ; }
+          else if (ch === ',' && !inQ) { out.push(cur.trim()); cur=""; }
+          else cur += ch;
+        }
+        out.push(cur.trim());
+        return out;
+      };
+
+      const headers = parseRow(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9_]/g,"_"));
+      const col = (...names: string[]) => { for (const n of names) { const i=headers.indexOf(n); if(i>=0) return i; } return -1; };
+
+      const iName    = col("customer_name","client_name","name","contact_name");
+      const iPhone   = col("primary_phone","phone_number","phone","mobile");
+      const iCompany = col("agency","company","store_id","store");
+      const iState   = col("most_frequent_state","remarks","remark","notes","state");
+      const iStatus  = col("call_status","status");
+      const iInterest= col("interest","interested");
+      const iAgent   = col("agent","agent_name");
+      const iDate    = col("date");
+
+      const PRIORITY: any = { interested:3, callback:2, contacted:1 };
+      const stripPhone = (p:string) => p.replace(/[\s\-()+.]/g,"").toLowerCase();
+
+      const seen: any = {};
+
+      for (let i = 1; i < lines.length; i++) {
+        const row = parseRow(lines[i]);
+        const statusRaw   = (iStatus   >= 0 ? row[iStatus]   : "").trim().toLowerCase();
+        const interestRaw = (iInterest >= 0 ? row[iInterest] : "").trim().toLowerCase();
+
+        let bucket: string|null = null;
+        if (interestRaw==="yes")                             bucket="interested";
+        else if (/^ans/.test(statusRaw))                     bucket="contacted";
+        else if (/callback|call back|\bcb\b/.test(statusRaw)) bucket="callback";
+        if (!bucket) continue;
+
+        const name    = iName    >= 0 ? row[iName].trim()    : "";
+        const phone   = iPhone   >= 0 ? row[iPhone].trim()   : "";
+        const company = iCompany >= 0 ? row[iCompany].trim() : "";
+        const remarks = iState   >= 0 ? row[iState].trim()   : "";
+        const agent   = iAgent   >= 0 ? row[iAgent].trim()   : "";
+        const date    = iDate    >= 0 ? row[iDate].trim()    : "";
+        const key     = (phone ? stripPhone(phone) : name.toLowerCase().trim());
+        if (!key) continue;
+
+        const existing = seen[key];
+        const inP = PRIORITY[bucket]||0;
+        if (!existing || inP > (PRIORITY[existing.status]||0)) {
+          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, company, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null };
+        }
+      }
+
+      const imported = Object.values(seen) as any[];
+      if (!imported.length) { showToast("No qualifying rows found (need Answered/Callback/Interested)."); return; }
+
+      updateDb((db:any) => {
+        const existing: any[] = db.contacts || [];
+        const existingMap: any = {};
+        existing.forEach((c:any) => {
+          const k = c.phone ? stripPhone(c.phone) : (c.name||"").toLowerCase().trim();
+          if (k) existingMap[k] = c;
+        });
+        imported.forEach((c:any) => {
+          const k = c.phone ? stripPhone(c.phone) : (c.name||"").toLowerCase().trim();
+          const ex = existingMap[k];
+          if (!ex || (PRIORITY[c.status]||0) >= (PRIORITY[ex.status]||0)) {
+            existingMap[k] = { ...c, leadStatus: ex?.leadStatus||null };
+          }
+        });
+        db.contacts = Object.values(existingMap);
+      });
+
+      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""}.`);
+    };
+    reader.readAsText(file);
+  };
+
   const updateMemberStat = (taskId:string, memberId:string, field:string, value:number) => {
     const numVal = Math.max(0,parseInt(String(value))||0);
     updateDb((db:any)=>{
@@ -1103,6 +1193,10 @@ export default function App() {
               <div className="fade-up">
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
                   <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Contacts</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {counts.interested} interested · {counts.callback} callbacks</div></div>
+                  <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
+                    ↑ Import CSV
+                    <input type="file" accept=".csv" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f) importContactsFromCSV(f); e.target.value="";}}/>
+                  </label>
                 </div>
                 {/* Search */}
                 <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="Search by name, phone or company…" style={{border:"1.5px solid #e5e5e5",borderRadius:10,padding:"9px 14px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",marginBottom:14,transition:"border-color .15s"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
