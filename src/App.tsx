@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 
 const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
@@ -178,28 +178,47 @@ function TargetBar({ label, value, target }: { label:string; value:number; targe
 }
 
 //  PIN Screen 
+const MAX_PIN_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS   = 30_000;
+
 function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|null)=>void; db:any }) {
-  const [selected, setSelected] = useState<string|null>(null);
-  const [pin, setPin]           = useState(["","","",""]);
-  const [error, setError]       = useState(false);
-  const [shakeKey, setShakeKey] = useState(0);
+  const [selected, setSelected]   = useState<string|null>(null);
+  const [pin, setPin]             = useState(["","","",""]);
+  const [error, setError]         = useState(false);
+  const [shakeKey, setShakeKey]   = useState(0);
   const [pickMember, setPickMember] = useState(false);
+  const [attempts, setAttempts]   = useState(0);
+  const [lockedUntil, setLockedUntil] = useState<number|null>(null);
+  const [, forceRender]           = useState(0);
   const refs = [useRef<HTMLInputElement>(null),useRef<HTMLInputElement>(null),useRef<HTMLInputElement>(null),useRef<HTMLInputElement>(null)];
   const managerPin = db.settings?.managerPin||"1234";
   const memberPin  = db.settings?.agentPin||"0000";
   const members:any[]  = db.members||[];
 
+  const isLocked = lockedUntil !== null && Date.now() < lockedUntil;
+  const lockSecsLeft = isLocked ? Math.ceil((lockedUntil! - Date.now()) / 1000) : 0;
+
+  useEffect(()=>{
+    if(!isLocked) return;
+    const t = setInterval(()=>{ if(Date.now()>=lockedUntil!) { setLockedUntil(null); setAttempts(0); clearInterval(t); } else forceRender(n=>n+1); }, 1000);
+    return ()=>clearInterval(t);
+  },[isLocked, lockedUntil]);
+
   const handleDigit = (i:number, val:string) => {
-    if(!/^\d?$/.test(val)) return;
+    if(isLocked || !/^\d?$/.test(val)) return;
     const next=[...pin]; next[i]=val; setPin(next); setError(false);
     if(val&&i<3) refs[i+1].current?.focus();
     if(val&&i===3){
       const entered=next.join("");
-      if(selected==="manager"&&entered===managerPin){ onUnlock("manager",null); return; }
+      if(selected==="manager"&&entered===managerPin){ setAttempts(0); onUnlock("manager",null); return; }
       if(selected==="member"&&entered===memberPin){
+        setAttempts(0);
         if(members.length===0){ onUnlock("member",null); return; }
         setPickMember(true); return;
       }
+      const next_attempts = attempts + 1;
+      setAttempts(next_attempts);
+      if(next_attempts >= MAX_PIN_ATTEMPTS){ setLockedUntil(Date.now()+PIN_LOCKOUT_MS); setPin(["","","",""]); return; }
       setError(true); setShakeKey(k=>k+1); setPin(["","","",""]);
       setTimeout(()=>refs[0].current?.focus(),50);
     }
@@ -243,8 +262,10 @@ function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|nu
                 <input key={i} ref={refs[i]} className={`pin-box${error?" error":""}`}
                   type="text" inputMode="numeric" maxLength={1}
                   value={pin[i]} onChange={e=>handleDigit(i,e.target.value)} onKeyDown={e=>handleKey(i,e)}/> ))}
-            </div> {error&&<div style={{fontSize:13,color:"#ef4444",fontWeight:600,marginBottom:16}}>Incorrect PIN — try again.</div>}
-            <button className="ghost-btn" style={{width:"100%"}} onClick={()=>{setSelected(null);setPin(["","","",""]);setError(false);}}>← Back</button> </> )}
+            </div>
+            {isLocked&&<div style={{fontSize:13,color:"#ef4444",fontWeight:600,marginBottom:16,background:"#fff1f2",border:"1.5px solid #fecaca",borderRadius:10,padding:"10px 14px"}}>Too many attempts — try again in {lockSecsLeft}s</div>}
+            {!isLocked&&error&&<div style={{fontSize:13,color:"#ef4444",fontWeight:600,marginBottom:16}}>Incorrect PIN — {MAX_PIN_ATTEMPTS-attempts} attempt{MAX_PIN_ATTEMPTS-attempts!==1?"s":""} left</div>}
+            <button className="ghost-btn" style={{width:"100%"}} onClick={()=>{setSelected(null);setPin(["","","",""]);setError(false);setAttempts(0);setLockedUntil(null);}}>← Back</button> </> )}
       </div> </div> );
 }
 
@@ -295,44 +316,36 @@ export default function App() {
   const [emailTo, setEmailTo]                     = useState("");
   const [syncing, setSyncing]                     = useState(true);
 
-  const modalRef     = useRef<HTMLInputElement>(null);
-  const nextColorRef = useRef<number>(0);
-  const writerIdRef  = useRef(uid()); // unique ID for this browser session
+  const modalRef      = useRef<HTMLInputElement>(null);
+  const nextColorRef  = useRef<number>(0);
+  const writerIdRef   = useRef(uid());
+  const saveTimerRef  = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const pendingSaveRef= useRef<any>(null);
 
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
-    console.log("Supabase init starting...");
-
-    // 1. Load latest data from Supabase on mount
     loadRemote().then(data=>{
-      console.log("Supabase loadRemote result:", data);
       if(data && Object.keys(data).length>0){
         const { __writerId:_, ...clean } = data;
         saveLocal(clean);
         setDb(clean);
       }
       setSyncing(false);
-    }).catch((err:any)=>{ console.error("Supabase loadRemote error:", err); setSyncing(false); });
+    }).catch(()=>setSyncing(false));
 
-    // 2. Subscribe to live changes from other devices
     const channel = supabase
       .channel("calltrack-realtime")
       .on("postgres_changes",{event:"*",schema:"public",table:"calltrack"},(payload:any)=>{
-        console.log("Supabase realtime event:", payload);
         const incoming = payload.new?.data;
         if(!incoming) return;
-        // ignore echoes of our own writes by checking the session writer ID
         if(incoming.__writerId === writerIdRef.current) return;
         const { __writerId:_, ...clean } = incoming;
         saveLocal(clean);
         setDb(clean);
       })
-      .subscribe((status:string)=>{
-        console.log("Supabase channel status:", status);
-      });
+      .subscribe();
 
-    console.log("Supabase channel created:", channel);
-    return ()=>{ supabase.removeChannel(channel); };
+    return ()=>{ channel.unsubscribe(); supabase.removeChannel(channel); };
   },[]);
 
   useEffect(()=>{ if(modal) setTimeout(()=>modalRef.current?.focus(),60); },[modal]);
@@ -340,15 +353,16 @@ export default function App() {
 
   const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(null),2200); };
 
-  // updateDb — writes locally immediately, then syncs to Supabase
-  const updateDb = (fn:(db:any)=>void) => setDb((prev:any)=>{
-    const next=JSON.parse(JSON.stringify(prev));
+  // updateDb — writes locally immediately, debounces Supabase writes to 1.2s
+  const updateDb = useCallback((fn:(db:any)=>void) => setDb((prev:any)=>{
+    const next = structuredClone(prev);
     fn(next);
     saveLocal(next);
-    // embed writerId so realtime echo is ignored on this device
-    saveRemote({...next, __writerId: writerIdRef.current});
+    pendingSaveRef.current = {...next, __writerId: writerIdRef.current};
+    if(saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) saveRemote(pendingSaveRef.current); }, 1200);
     return next;
-  });
+  }), []);
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
 
   const isManager  = role==="manager";
@@ -1261,21 +1275,21 @@ export default function App() {
               warm:{label:"Warm", color:"#d97706",bg:"#fffbeb"},
               cold:{label:"Cold", color:"#2563eb",bg:"#eff6ff"},
             };
-            const campaigns    = Array.from(new Set(contacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[];
-            const agentOptions = Array.from(new Set(contacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[];
+            const campaigns    = useMemo(()=>Array.from(new Set(contacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[],[contacts]);
+            const agentOptions = useMemo(()=>Array.from(new Set(contacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[],[contacts]);
             const cf = contactFilters;
             const q  = contactSearch.trim().toLowerCase();
-            const toggleFilter = (dim:string, val:string) => setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; });
-            const clearFilters = () => setContactFilters({status:[],lead:[],campaign:[],agent:[]});
+            const toggleFilter = useCallback((dim:string, val:string) => setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }),[]);
+            const clearFilters = useCallback(() => setContactFilters({status:[],lead:[],campaign:[],agent:[]}),[]);
             const anyActive = Object.values(cf).some((a:any)=>a.length>0)||q.length>0;
-            const filtered = contacts.filter((c:any)=>{
+            const filtered = useMemo(()=>contacts.filter((c:any)=>{
               if(cf.status?.length  && !cf.status.includes(c.status)) return false;
               if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
               if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
               if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
               if(q && !`${c.name} ${c.phone} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
               return true;
-            }).sort((a:any,b:any)=>(statusPriority[b.status]||0)-(statusPriority[a.status]||0));
+            }).sort((a:any,b:any)=>(statusPriority[b.status]||0)-(statusPriority[a.status]||0)),[contacts,cf,q]);
             const filterDefs = [
               {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"}]},
               {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
