@@ -278,6 +278,7 @@ export default function App() {
   const [contactCampaignFilter, setContactCampaignFilter] = useState("all");
   const [pendingImport, setPendingImport] = useState<{file:File}|null>(null);
   const [pendingCampaignName, setPendingCampaignName] = useState("");
+  const [deletionHistory, setDeletionHistory] = useState<Array<{hid:string,label:string,contacts:any[],timestamp:number}>>([]);
   const [emailModal, setEmailModal]               = useState<{task:any}|null>(null);
   const [emailTo, setEmailTo]                     = useState("");
   const [syncing, setSyncing]                     = useState(true);
@@ -414,21 +415,47 @@ export default function App() {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
   };
 
+  const pushDeletionHistory = (label:string, contacts:any[]) => {
+    setDeletionHistory(h=>[{hid:crypto.randomUUID(),label,contacts:[...contacts],timestamp:Date.now()},...h.slice(0,19)]);
+  };
+
   const deleteContact = (contactId:string) => {
+    const c=(db.contacts||[]).find((c:any)=>c.id===contactId);
+    if(c) pushDeletionHistory(c.name||c.phone||"Contact",[c]);
     updateDb((db:any)=>{ db.contacts=(db.contacts||[]).filter((c:any)=>c.id!==contactId); });
     setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
   };
 
   const deleteSelectedContacts = () => {
+    const toDelete=(db.contacts||[]).filter((c:any)=>selectedContactIds.has(c.id));
+    if(toDelete.length) pushDeletionHistory(`${toDelete.length} contacts`,toDelete);
     updateDb((db:any)=>{ db.contacts=(db.contacts||[]).filter((c:any)=>!selectedContactIds.has(c.id)); });
     setSelectedContactIds(new Set());
     setContactSelectMode(false);
   };
 
   const deleteAllContacts = () => {
+    const all=db.contacts||[];
+    if(all.length) pushDeletionHistory(`All ${all.length} contacts`,all);
     updateDb((db:any)=>{ db.contacts=[]; });
     setSelectedContactIds(new Set());
     setContactSelectMode(false);
+  };
+
+  const undoDelete = (hid:string) => {
+    const entry=deletionHistory.find(h=>h.hid===hid);
+    if(!entry) return;
+    updateDb((db:any)=>{
+      const existing:any[]=db.contacts||[];
+      const ids=new Set(existing.map((c:any)=>c.id));
+      db.contacts=[...existing,...entry.contacts.filter((c:any)=>!ids.has(c.id))];
+    });
+    setDeletionHistory(h=>h.filter(e=>e.hid!==hid));
+    showToast("Restored "+entry.label);
+  };
+
+  const updateContactSalesAgent = (contactId:string, salesAgent:string) => {
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.salesAgent=salesAgent; });
   };
 
   const importContactsFromCSV = (file: File, campaignName: string) => {
@@ -1239,6 +1266,50 @@ export default function App() {
                     </label>
                   </div>
                 </div>
+                {/* Agent Done / Not Done panel */}
+                {members.length>0&&(()=>{
+                  const assignedNames=new Set(contacts.map((c:any)=>c.salesAgent||"").filter(Boolean));
+                  const done=members.filter((m:any)=>assignedNames.has(m.name));
+                  const notDone=members.filter((m:any)=>!assignedNames.has(m.name));
+                  return (
+                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:20}}>
+                      <div style={{border:"1.5px solid #d1fae5",borderRadius:14,overflow:"hidden"}}>
+                        <div style={{background:"#f0fdf4",padding:"10px 14px",fontWeight:700,fontSize:12,color:"#059669",display:"flex",alignItems:"center",gap:6}}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                          Assigned <span style={{opacity:.6,fontWeight:500}}>({done.length})</span>
+                        </div>
+                        {done.length===0?<div style={{padding:"12px 14px",fontSize:12,color:"#bbb"}}>No agents assigned yet</div>:done.map((m:any)=>{
+                          const cnt=contacts.filter((c:any)=>c.salesAgent===m.name).length;
+                          return <div key={m.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 14px",borderTop:"1px solid #f0fdf4",fontSize:13}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{width:24,height:24,borderRadius:7,background:"#059669",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:"#fff"}}>{initials(m.name)}</div>
+                              <span style={{fontWeight:600}}>{m.name}</span>
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <span style={{fontSize:11,color:"#888"}}>{cnt} contact{cnt!==1?"s":""}</span>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#059669" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                          </div>;
+                        })}
+                      </div>
+                      <div style={{border:"1.5px solid #fee2e2",borderRadius:14,overflow:"hidden"}}>
+                        <div style={{background:"#fff1f2",padding:"10px 14px",fontWeight:700,fontSize:12,color:"#ef4444",display:"flex",alignItems:"center",gap:6}}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/></svg>
+                          Not Assigned <span style={{opacity:.6,fontWeight:500}}>({notDone.length})</span>
+                        </div>
+                        {notDone.length===0?<div style={{padding:"12px 14px",fontSize:12,color:"#bbb"}}>All agents assigned</div>:notDone.map((m:any)=>(
+                          <div key={m.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"9px 14px",borderTop:"1px solid #fff1f2",fontSize:13}}>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{width:24,height:24,borderRadius:7,background:"#e5e5e5",display:"flex",alignItems:"center",justifyContent:"center",fontSize:9,fontWeight:800,color:"#888"}}>{initials(m.name)}</div>
+                              <span style={{fontWeight:600,color:"#888"}}>{m.name}</span>
+                            </div>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ddd" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/></svg>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
                 {/* Search */}
                 <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="Search by name, phone or company…" style={{border:"1.5px solid #e5e5e5",borderRadius:10,padding:"9px 14px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",marginBottom:14,transition:"border-color .15s"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
                 {/* Campaign filter */}
@@ -1304,6 +1375,14 @@ export default function App() {
                         </div>
                         {/* Remarks */}
                         {c.remarks&&<div style={{fontSize:12,color:"#555",lineHeight:1.5,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}}>{c.remarks}</div>}
+                        {/* Sales agent */}
+                        <div style={{display:"flex",alignItems:"center",gap:8}}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+                          <select value={c.salesAgent||""} onChange={e=>{ e.stopPropagation(); updateContactSalesAgent(c.id,e.target.value); }} style={{flex:1,border:"1.5px solid #e5e5e5",borderRadius:8,padding:"4px 8px",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fafafa",color:c.salesAgent?"#111":"#aaa",cursor:"pointer"}}>
+                            <option value="">Assign sales agent…</option>
+                            {members.map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
+                          </select>
+                        </div>
                         {/* Lead status toggles */}
                         <div style={{display:"flex",gap:6,paddingTop:4,borderTop:"1px solid #f5f5f5"}}>
                           {(["hot","warm","cold"] as const).map(ls=>{
@@ -1318,6 +1397,27 @@ export default function App() {
                     );
                   })}
                 </div>
+                {/* Deletion history */}
+                {deletionHistory.length>0&&(
+                  <div style={{marginTop:32}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5,marginBottom:10}}>Recently Deleted</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {deletionHistory.map(h=>{
+                        const ago=Math.round((Date.now()-h.timestamp)/60000);
+                        const agoStr=ago<1?"just now":ago===1?"1 min ago":`${ago} min ago`;
+                        return (
+                          <div key={h.hid} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 14px",background:"#fafafa",border:"1.5px solid #f0f0f0",borderRadius:12,fontSize:13}}>
+                            <div>
+                              <span style={{fontWeight:600}}>{h.label}</span>
+                              <span style={{color:"#aaa",marginLeft:8,fontSize:12}}>{agoStr}</span>
+                            </div>
+                            <button onClick={()=>undoDelete(h.hid)} style={{padding:"5px 14px",borderRadius:8,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Undo</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
