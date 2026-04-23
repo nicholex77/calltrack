@@ -275,6 +275,9 @@ export default function App() {
   const [contactLeadFilter, setContactLeadFilter] = useState("all");
   const [contactSelectMode, setContactSelectMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [contactCampaignFilter, setContactCampaignFilter] = useState("all");
+  const [pendingImport, setPendingImport] = useState<{file:File}|null>(null);
+  const [pendingCampaignName, setPendingCampaignName] = useState("");
   const [emailModal, setEmailModal]               = useState<{task:any}|null>(null);
   const [emailTo, setEmailTo]                     = useState("");
   const [syncing, setSyncing]                     = useState(true);
@@ -428,7 +431,7 @@ export default function App() {
     setContactSelectMode(false);
   };
 
-  const importContactsFromCSV = (file: File) => {
+  const importContactsFromCSV = (file: File, campaignName: string) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = (e.target?.result as string)||"";
@@ -489,7 +492,7 @@ export default function App() {
         const existing = seen[key];
         const inP = PRIORITY[bucket]||0;
         if (!existing || inP > (PRIORITY[existing.status]||0)) {
-          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, company, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null };
+          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, company, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
         }
       }
 
@@ -497,9 +500,11 @@ export default function App() {
       if (!imported.length) { showToast("No qualifying rows found (need Answered/Callback/Interested)."); return; }
 
       updateDb((db:any) => {
-        const existing: any[] = db.contacts || [];
+        const allContacts: any[] = db.contacts || [];
+        const otherCampaign = allContacts.filter((c:any) => c.campaign !== campaignName);
+        const sameCampaign  = allContacts.filter((c:any) => c.campaign === campaignName);
         const existingMap: any = {};
-        existing.forEach((c:any) => {
+        sameCampaign.forEach((c:any) => {
           const k = c.phone ? stripPhone(c.phone) : (c.name||"").toLowerCase().trim();
           if (k) existingMap[k] = c;
         });
@@ -510,10 +515,10 @@ export default function App() {
             existingMap[k] = { ...c, leadStatus: ex?.leadStatus||null };
           }
         });
-        db.contacts = Object.values(existingMap);
+        db.contacts = [...otherCampaign, ...Object.values(existingMap)];
       });
 
-      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""}.`);
+      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}".`);
     };
     reader.readAsText(file);
   };
@@ -1196,18 +1201,20 @@ export default function App() {
               warm:{label:"Warm", color:"#d97706",bg:"#fffbeb"},
               cold:{label:"Cold", color:"#2563eb",bg:"#eff6ff"},
             };
+            const campaigns = Array.from(new Set(contacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[];
+            const campaignContacts = contactCampaignFilter==="all" ? contacts : contacts.filter((c:any)=>(c.campaign||"")=== contactCampaignFilter);
             const q = contactSearch.trim().toLowerCase();
-            const filtered = contacts.filter((c:any)=>{
+            const filtered = campaignContacts.filter((c:any)=>{
               if(contactStatusFilter!=="all" && c.status!==contactStatusFilter) return false;
               if(contactLeadFilter==="unclassified" && c.leadStatus) return false;
               if(contactLeadFilter!=="all" && contactLeadFilter!=="unclassified" && c.leadStatus!==contactLeadFilter) return false;
               if(q && !`${c.name} ${c.phone} ${c.company||""}`.toLowerCase().includes(q)) return false;
               return true;
             }).sort((a:any,b:any)=>(statusPriority[b.status]||0)-(statusPriority[a.status]||0));
-            const counts:any = {all:contacts.length,interested:0,callback:0,contacted:0};
-            contacts.forEach((c:any)=>{ if(counts[c.status]!==undefined) counts[c.status]++; });
-            const leadCounts:any = {all:contacts.length,hot:0,warm:0,cold:0,unclassified:0};
-            contacts.forEach((c:any)=>{ if(c.leadStatus&&leadCounts[c.leadStatus]!==undefined) leadCounts[c.leadStatus]++; else leadCounts.unclassified++; });
+            const counts:any = {all:campaignContacts.length,interested:0,callback:0,contacted:0};
+            campaignContacts.forEach((c:any)=>{ if(counts[c.status]!==undefined) counts[c.status]++; });
+            const leadCounts:any = {all:campaignContacts.length,hot:0,warm:0,cold:0,unclassified:0};
+            campaignContacts.forEach((c:any)=>{ if(c.leadStatus&&leadCounts[c.leadStatus]!==undefined) leadCounts[c.leadStatus]++; else leadCounts.unclassified++; });
             return (
               <div className="fade-up">
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20,flexWrap:"wrap",gap:12}}>
@@ -1228,12 +1235,26 @@ export default function App() {
                     </button>
                     <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
                       ↑ Import CSV
-                      <input type="file" accept=".csv" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f) importContactsFromCSV(f); e.target.value="";}}/>
+                      <input type="file" accept=".csv" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f){ setPendingCampaignName(f.name.replace(/\.csv$/i,"").trim()); setPendingImport({file:f}); } e.target.value="";}}/>
                     </label>
                   </div>
                 </div>
                 {/* Search */}
                 <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="Search by name, phone or company…" style={{border:"1.5px solid #e5e5e5",borderRadius:10,padding:"9px 14px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%",marginBottom:14,transition:"border-color .15s"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                {/* Campaign filter */}
+                {campaigns.length>0&&(
+                  <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+                    <span style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5,marginRight:4}}>Campaign</span>
+                    <button onClick={()=>setContactCampaignFilter("all")} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactCampaignFilter==="all"?"#7c3aed":"#e5e5e5"}`,background:contactCampaignFilter==="all"?"#7c3aed":"#fff",color:contactCampaignFilter==="all"?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                      All <span style={{opacity:.7}}>({contacts.length})</span>
+                    </button>
+                    {campaigns.map(cp=>(
+                      <button key={cp} onClick={()=>setContactCampaignFilter(cp)} style={{padding:"5px 12px",borderRadius:20,border:`1.5px solid ${contactCampaignFilter===cp?"#7c3aed":"#e5e5e5"}`,background:contactCampaignFilter===cp?"#7c3aed":"#fff",color:contactCampaignFilter===cp?"#fff":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>
+                        {cp} <span style={{opacity:.7}}>({contacts.filter((c:any)=>c.campaign===cp).length})</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {/* Call status filter */}
                 <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>
                   {(["all","interested","callback","contacted"] as const).map(s=>(
@@ -1269,6 +1290,7 @@ export default function App() {
                             <div style={{fontSize:12,color:"#888",marginTop:2}}>{c.phone||"—"}{c.company?` · ${c.company}`:""}</div>
                           </div>
                           <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"3px 9px",borderRadius:20,flexShrink:0}}>{sm.label}</span>
+                          {c.campaign&&<span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",padding:"3px 8px",borderRadius:20,flexShrink:0,maxWidth:90,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaign}</span>}
                           {!contactSelectMode&&(
                             <button onClick={e=>{ e.stopPropagation(); if(window.confirm(`Delete ${c.name||"this contact"}?`)) deleteContact(c.id); }} style={{background:"none",border:"none",cursor:"pointer",color:"#ccc",padding:4,display:"flex",alignItems:"center",flexShrink:0}} title="Delete contact">
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
@@ -1474,6 +1496,19 @@ export default function App() {
                 <button className="danger-solid-btn" style={{flex:1}} onClick={()=>confirmModal.type==="task"?doRemoveTask(confirmModal.id):doRemoveMember(confirmModal.id)}>
                   Yes, Remove
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {pendingImport&&(
+          <div className="modal-overlay" onClick={()=>setPendingImport(null)}>
+            <div className="confirm-modal" onClick={e=>e.stopPropagation()}>
+              <div style={{fontWeight:800,fontSize:17,marginBottom:6,letterSpacing:-.3}}>Name this Campaign</div>
+              <div style={{fontSize:13,color:"#555",marginBottom:16,lineHeight:1.6}}>Give this import a campaign name so you can filter contacts by it later.</div>
+              <input autoFocus className="text-input" placeholder="e.g. April 2026 Outreach" value={pendingCampaignName} onChange={e=>setPendingCampaignName(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"&&pendingCampaignName.trim()){ importContactsFromCSV(pendingImport.file,pendingCampaignName.trim()); setPendingImport(null); }}} style={{marginBottom:16}}/>
+              <div style={{display:"flex",gap:10}}>
+                <button className="ghost-btn" style={{flex:1}} onClick={()=>setPendingImport(null)}>Cancel</button>
+                <button className="primary-btn" style={{flex:1,opacity:pendingCampaignName.trim()?1:.4,cursor:pendingCampaignName.trim()?"pointer":"not-allowed"}} onClick={()=>{ if(pendingCampaignName.trim()){ importContactsFromCSV(pendingImport.file,pendingCampaignName.trim()); setPendingImport(null); }}}>Import</button>
               </div>
             </div>
           </div>
