@@ -189,7 +189,7 @@ const CONTACT_LEAD_META:Record<string,{label:string,color:string,bg:string}> = {
 };
 
 // ── Memoised row — only re-renders when its own props change ─────────────────
-const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMode,members,onToggle,onSelect,onSalesAgent,onLeadStatus,onDelete,onToast}:any){
+const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMode,isManager,members,onToggle,onSelect,onSalesAgent,onLeadStatus,onStatus,onDelete,onToast}:any){
   const sm=CONTACT_STATUS_META[c.status]||CONTACT_STATUS_META.contacted;
   const lm=c.leadStatus?CONTACT_LEAD_META[c.leadStatus]:null;
 
@@ -242,11 +242,14 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14,paddingTop:14,borderTop:"1.5px solid #e8efff"}}>
             <div>
-              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
-              <select value={c.salesAgent||""} onChange={e=>onSalesAgent(c.id,e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
-                <option value="">Unassigned</option>
-                {(members||[]).map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
-              </select>
+              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Call Status</div>
+              <div style={{display:"flex",gap:6}}>
+                {(["contacted","callback","interested"] as const).map(st=>{
+                  const stm=CONTACT_STATUS_META[st];
+                  const active=c.status===st;
+                  return <button key={st} onClick={()=>onStatus(c.id,st)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;
+                })}
+              </div>
             </div>
             <div>
               <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Lead Status</div>
@@ -259,9 +262,18 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
               </div>
             </div>
           </div>
+          {isManager&&(
+            <div style={{marginTop:12,paddingTop:12,borderTop:"1.5px solid #e8efff"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
+              <select value={c.salesAgent||""} onChange={e=>onSalesAgent(c.id,e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+                <option value="">Unassigned</option>
+                {(members||[]).map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
+              </select>
+            </div>
+          )}
           <div style={{display:"flex",gap:8,marginTop:12}}>
             <button onClick={()=>{const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n");navigator.clipboard.writeText(txt);onToast("All details copied");}} style={{flex:1,padding:"8px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
-            <button onClick={()=>{if(window.confirm(`Delete ${c.name||"this contact"}?`)){onDelete(c.id);onToggle(null);}}} style={{padding:"8px 16px",borderRadius:9,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+            {isManager&&<button onClick={()=>{if(window.confirm(`Delete ${c.name||"this contact"}?`)){onDelete(c.id);onToggle(null);}}} style={{padding:"8px 16px",borderRadius:9,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>}
           </div>
         </div>
       )}
@@ -407,6 +419,9 @@ export default function App() {
   const [emailModal, setEmailModal]               = useState<{task:any}|null>(null);
   const [emailTo, setEmailTo]                     = useState("");
   const [syncing, setSyncing]                     = useState(true);
+  const [syncError, setSyncError]                 = useState(false);
+  const [importing, setImporting]                 = useState(false);
+  const [exporting, setExporting]                 = useState(false);
 
   const modalRef      = useRef<HTMLInputElement>(null);
   const nextColorRef  = useRef<number>(0);
@@ -414,6 +429,8 @@ export default function App() {
   const saveTimerRef  = useRef<ReturnType<typeof setTimeout>|null>(null);
   const pendingSaveRef= useRef<any>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
@@ -448,16 +465,32 @@ export default function App() {
 
   const showToast = useCallback((msg:string) => { if(toastTimerRef.current) clearTimeout(toastTimerRef.current); setToast(msg); toastTimerRef.current=setTimeout(()=>setToast(null),2200); },[]);
 
+  const attemptSave = useCallback((data:any, attempt=0) => {
+    const DELAYS = [5000, 15000, 30000];
+    saveRemote(data).then(()=>{
+      retryCountRef.current = 0;
+      setSyncError(false);
+      pendingSaveRef.current = null;
+    }).catch(()=>{
+      setSyncError(true);
+      if(attempt < 3){
+        if(retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) attemptSave(pendingSaveRef.current, attempt+1); }, DELAYS[attempt]||30000);
+      }
+    });
+  }, []);
+
   // updateDb — writes locally immediately, debounces Supabase writes to 1.2s
   const updateDb = useCallback((fn:(db:any)=>void) => setDb((prev:any)=>{
     const next = structuredClone(prev);
     fn(next);
     saveLocal(next);
     pendingSaveRef.current = {...next, __writerId: writerIdRef.current};
+    retryCountRef.current = 0;
     if(saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) saveRemote(pendingSaveRef.current).catch(()=>showToast("⚠️ Sync failed — changes saved locally.")); }, 1200);
+    saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) attemptSave(pendingSaveRef.current); }, 1200);
     return next;
-  }), []);
+  }), [attemptSave]);
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
 
   const isManager  = role==="manager";
@@ -474,7 +507,9 @@ export default function App() {
   const clearContactFilters = useCallback(() => setContactFilters({status:[],lead:[],campaign:[],agent:[]}),[]);
   const filteredContacts  = useMemo(()=>{
     const cf=contactFilters; const q=contactSearch.trim().toLowerCase();
+    const myName = !isManager && loggedInMemberId ? (members.find((m:any)=>m.id===loggedInMemberId)?.name||null) : null;
     return allContacts.filter((c:any)=>{
+      if(myName && c.salesAgent !== myName) return false;
       if(cf.status?.length   && !cf.status.includes(c.status)) return false;
       if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
       if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
@@ -482,7 +517,7 @@ export default function App() {
       if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
       return true;
     }).sort((a:any,b:any)=>({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0));
-  },[allContacts,contactFilters,contactSearch]);
+  },[allContacts,contactFilters,contactSearch,isManager,loggedInMemberId,members]);
 
   const handleUnlock = (r:string, memberId:string|null) => { setRole(r); setLoggedInMemberId(memberId||null); setPage("daily"); };
   const handleLock   = () => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); };
@@ -590,6 +625,10 @@ export default function App() {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
   },[]);
 
+  const updateContactStatus = useCallback((contactId:string, status:string) => {
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.status=status; });
+  },[]);
+
   const deleteContactCb = useCallback((contactId:string) => {
     updateDb((db:any)=>{
       const c=(db.contacts||[]).find((x:any)=>x.id===contactId);
@@ -621,11 +660,12 @@ export default function App() {
   };
 
   const importContactsFromCSV = (file: File, campaignName: string) => {
+    setImporting(true);
     const reader = new FileReader();
     reader.onload = (e) => {
       const text = (e.target?.result as string)||"";
       const lines = text.split(/\r?\n/).filter(l=>l.trim());
-      if (lines.length < 2) { showToast("CSV has no data rows."); return; }
+      if (lines.length < 2) { showToast("CSV has no data rows."); setImporting(false); return; }
 
       // Parse CSV respecting quoted fields
       const parseRow = (line: string): string[] => {
@@ -694,7 +734,7 @@ export default function App() {
       }
 
       const imported = Object.values(seen) as any[];
-      if (!imported.length) { showToast("No qualifying rows found (need Answered/Callback/Interested)."); return; }
+      if (!imported.length) { showToast("No qualifying rows found (need Answered/Callback/Interested)."); setImporting(false); return; }
 
       updateDb((db:any) => {
         const allContacts: any[] = db.contacts || [];
@@ -716,8 +756,9 @@ export default function App() {
       });
 
       showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}".`);
+      setImporting(false);
     };
-    reader.onerror = () => showToast("Failed to read file — try again.");
+    reader.onerror = () => { showToast("Failed to read file — try again."); setImporting(false); };
     reader.readAsText(file);
   };
 
@@ -876,13 +917,16 @@ export default function App() {
   const exportToCSV = () => {
     const rows = getPreviewRows();
     if(rows.length===0){ showToast("No data to export"); return; }
-    const headers=Object.keys(rows[0]);
-    const csvContent=[headers.join(","),...rows.map((r:any)=>headers.map((h:string)=>`"${String(r[h]||"").replace(/"/g,'""')}"`).join(","))].join("\n");
-    const encoded="data:text/csv;charset=utf-8,"+encodeURIComponent(csvContent);
-    const a=document.createElement("a"); a.href=encoded;
-    a.download=`blurb_${exportTab}_${exportRange}_${todayKey()}.csv`;
-    try{ document.body.appendChild(a); a.click(); } finally { document.body.removeChild(a); }
-    showToast("CSV exported");
+    setExporting(true);
+    try {
+      const headers=Object.keys(rows[0]);
+      const csvContent=[headers.join(","),...rows.map((r:any)=>headers.map((h:string)=>`"${String(r[h]||"").replace(/"/g,'""')}"`).join(","))].join("\n");
+      const encoded="data:text/csv;charset=utf-8,"+encodeURIComponent(csvContent);
+      const a=document.createElement("a"); a.href=encoded;
+      a.download=`blurb_${exportTab}_${exportRange}_${todayKey()}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      showToast("CSV exported");
+    } finally { setExporting(false); }
   };
 
   const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
@@ -894,6 +938,7 @@ export default function App() {
   const exportToPDF = async () => {
     const rows = getPreviewRows();
     if(rows.length===0){ showToast("No data to export"); return; }
+    setExporting(true);
     showToast("Generating PDF…");
     try {
       await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
@@ -989,7 +1034,7 @@ export default function App() {
     } catch(e) {
       console.error(e);
       showToast("PDF export failed");
-    }
+    } finally { setExporting(false); }
   };
 
   //  Overall performance summary (for export page) 
@@ -1214,7 +1259,7 @@ export default function App() {
   const hasUnsaved = dayTasks.some((t:any)=>!t.saved);
   const navItems = isManager
     ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["export","Export"],["members","Members"],["settings","Settings"]]
-    : [["daily","Daily"],["weekly","Weekly"],["mystats","My Stats"],["export","Export"],["members","Members"]];
+    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["mystats","My Stats"],["export","Export"],["members","Members"]];
 
   const perfSummary = buildPerformanceSummary();
   const previewRows = getPreviewRows();
@@ -1230,6 +1275,7 @@ export default function App() {
               <span style={{fontWeight:800,fontSize:15,letterSpacing:-.4,color:"#1a56db"}}>blurB</span>
               <span style={{fontSize:11,color:"#888",background:"#f3f3f3",padding:"2px 8px",borderRadius:5,fontWeight:600}}>mudah.my</span>
               {syncing&&<span style={{fontSize:11,color:"#888",fontWeight:600,display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:"#f59e0b",display:"inline-block",animation:"pulse 1s infinite"}}/>Syncing…</span>}
+              {syncError&&!syncing&&<span style={{fontSize:11,color:"#ef4444",fontWeight:700,background:"#fff1f2",border:"1px solid #fecaca",padding:"2px 8px",borderRadius:20}}>⚠ Unsaved</span>}
             </div>
             {/* Desktop nav */}
             <div className="desktop-nav" style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
@@ -1386,7 +1432,7 @@ export default function App() {
             </div> )}
 
           {/*  CONTACTS  */}
-          {page==="contacts"&&isManager&&(()=>{
+          {page==="contacts"&&(()=>{
             const contacts  = allContacts;
             const filtered  = filteredContacts;
             const anyActive = Object.values(contactFilters).some((a:any)=>a.length>0)||contactSearch.trim().length>0;
@@ -1394,7 +1440,7 @@ export default function App() {
               {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"}]},
               {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
               {key:"campaign",label:"Campaign", options:contactCampaigns.map(cp=>({val:cp,label:cp}))},
-              {key:"agent",   label:"Agent",    options:[...contactAgentOpts.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]},
+              ...(isManager?[{key:"agent",label:"Agent",options:[...contactAgentOpts.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]}]:[]),
             ];
             return (
               <div className="fade-up">
@@ -1404,24 +1450,24 @@ export default function App() {
                     <div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {filtered.length} shown{anyActive?" (filtered)":""}</div>
                   </div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                    {contactSelectMode&&selectedContactIds.size>0&&(
+                    {isManager&&contactSelectMode&&selectedContactIds.size>0&&(
                       <button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete ({selectedContactIds.size})</button>
                     )}
-                    {contacts.length>0&&!contactSelectMode&&(
+                    {isManager&&contacts.length>0&&!contactSelectMode&&(
                       <button onClick={()=>{ if(window.confirm(`Delete all ${contacts.length} contacts?`)) deleteAllContacts(); }} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete All</button>
                     )}
-                    {members.length>0&&contacts.length>0&&(
+                    {isManager&&members.length>0&&contacts.length>0&&(
                       <button onClick={()=>setShowAssignModal(true)} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #7c3aed",background:"#fff",color:"#7c3aed",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚡ Distribute</button>
                     )}
-                    <button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>
-                    <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>
-                      ↑ Import CSV
-                      <input type="file" accept=".csv" style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f){ setPendingCampaignName(f.name.replace(/\.csv$/i,"").trim()); setPendingImport({file:f}); } e.target.value="";}}/>
-                    </label>
+                    {isManager&&<button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>}
+                    {isManager&&<label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:`1.5px solid ${importing?"#aaa":"#1a56db"}`,background:"#fff",color:importing?"#aaa":"#1a56db",fontSize:13,fontWeight:700,cursor:importing?"not-allowed":"pointer",fontFamily:"inherit",opacity:importing?.6:1}}>
+                      {importing?<><span style={{width:10,height:10,border:"2px solid #1a56db",borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"pulse .8s linear infinite"}}/>Importing…</>:"↑ Import CSV"}
+                      <input type="file" accept=".csv" disabled={importing} style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f){ setPendingCampaignName(f.name.replace(/\.csv$/i,"").trim()); setPendingImport({file:f}); } e.target.value="";}}/>
+                    </label>}
                   </div>
                 </div>
-                {/* Agent panel */}
-                {members.length>0&&(()=>{
+                {/* Agent panel — managers only */}
+                {isManager&&members.length>0&&(()=>{
                   const assignedNames=new Set(contacts.map((c:any)=>c.salesAgent||"").filter(Boolean));
                   const done=members.filter((m:any)=>assignedNames.has(m.name));
                   const notDone=members.filter((m:any)=>!assignedNames.has(m.name));
@@ -1521,11 +1567,13 @@ export default function App() {
                       isOpen={openContactId===c.id}
                       isSelected={selectedContactIds.has(c.id)}
                       selectMode={contactSelectMode}
+                      isManager={isManager}
                       members={members}
                       onToggle={handleContactToggle}
                       onSelect={handleContactSelect}
                       onSalesAgent={updateContactSalesAgent}
                       onLeadStatus={updateContactLeadStatusCb}
+                      onStatus={updateContactStatus}
                       onDelete={deleteContactCb}
                       onToast={showToast}
                     />
@@ -1580,7 +1628,7 @@ export default function App() {
                 );
               })()}
               {/* Preview table */}
-              <div className="card" style={{overflow:"hidden",marginBottom:24}}> <div style={{padding:"14px 18px",borderBottom:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}> <div><div style={{fontWeight:700,fontSize:14}}>Preview</div><div style={{fontSize:12,color:"#888",marginTop:2}}>{previewRows.length} row{previewRows.length!==1?"s":""}</div></div> <div style={{display:"flex",gap:8}}> <button className="ghost-btn" onClick={exportToPDF} disabled={previewRows.length===0} style={{fontSize:13}}>Export PDF</button> <button className="green-btn" onClick={exportToCSV} disabled={previewRows.length===0}>Export CSV</button> </div> </div> {previewRows.length===0?(
+              <div className="card" style={{overflow:"hidden",marginBottom:24}}> <div style={{padding:"14px 18px",borderBottom:"1px solid #f0f0f0",display:"flex",justifyContent:"space-between",alignItems:"center"}}> <div><div style={{fontWeight:700,fontSize:14}}>Preview</div><div style={{fontSize:12,color:"#888",marginTop:2}}>{previewRows.length} row{previewRows.length!==1?"s":""}</div></div> <div style={{display:"flex",gap:8}}> <button className="ghost-btn" onClick={exportToPDF} disabled={previewRows.length===0||exporting} style={{fontSize:13}}>{exporting?"Exporting…":"Export PDF"}</button> <button className="green-btn" onClick={exportToCSV} disabled={previewRows.length===0||exporting}>{exporting?"Exporting…":"Export CSV"}</button></div> </div> {previewRows.length===0?(
                   <div style={{padding:"40px",textAlign:"center",color:"#bbb",fontSize:13}}>No data found for this filter.</div> ):(
                   <div style={{overflowX:"auto"}}> <table className="export-table"> <thead><tr>{Object.keys(previewRows[0]).map(h=><th key={h}>{h}</th>)}</tr></thead> <tbody>{previewRows.slice(0,15).map((row,i)=><tr key={i}>{Object.values(row).map((v,j)=><td key={j}>{String(v)}</td>)}</tr>)}</tbody> </table> {previewRows.length>15&&<div style={{padding:"10px 16px",fontSize:12,color:"#888",borderTop:"1px solid #f0f0f0"}}>+{previewRows.length-15} more rows in export</div>}
                   </div> )}
