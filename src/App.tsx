@@ -304,7 +304,6 @@ const PipelineCard = React.memo(function PipelineCard({c,isDragging,onDragStart,
       className="pipeline-card"
       draggable
       onDragStart={e=>onDragStart(e,c.id)}
-      onDragEnd={e=>e.preventDefault()}
       onClick={()=>onClick(c.id)}
       style={{opacity:isDragging?.4:1}}
     >
@@ -1711,7 +1710,7 @@ export default function App() {
                   {anyPipelineFilter&&<button onClick={()=>{setPipelineSearch("");setPipelineCampaignFilter("");setPipelineAgentFilter("");}} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear</button>}
                 </div>
                 {/* Kanban columns */}
-                <div className="pipeline-wrap">
+                <div className="pipeline-wrap" onDragEnd={handlePipelineDragEnd}>
                   {PIPELINE_COLS.map(col=>{
                     const cards=pipelineBase.filter((c:any)=>c.status===col.key);
                     const isOver=dragOverColumn===col.key;
