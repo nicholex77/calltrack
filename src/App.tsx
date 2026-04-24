@@ -453,6 +453,7 @@ export default function App() {
   const [assignFromUnassigned, setAssignFromUnassigned] = useState(true);
   const [assignMode, setAssignMode]               = useState<"even"|"custom">("even");
   const [assignSelectedMembers, setAssignSelectedMembers] = useState<Set<string>>(new Set());
+  const [lastDistributionSnapshot, setLastDistributionSnapshot] = useState<{id:string,prevAgent:string|null}[]|null>(null);
   const [pendingImport, setPendingImport] = useState<{file:File}|null>(null);
   const [pendingCampaignName, setPendingCampaignName] = useState("");
   const [deletionHistory, setDeletionHistory] = useState<Array<{hid:string,label:string,contacts:any[],timestamp:number}>>([]);
@@ -741,12 +742,29 @@ export default function App() {
     }
     const total=Object.keys(assignments).length;
     if(!total){showToast("No contacts to assign — check pool size or counts.");return;}
+    // Capture snapshot of previous agents for undo
+    const snapshot=(db.contacts||[])
+      .filter((c:any)=>assignments[c.id]!==undefined)
+      .map((c:any)=>({id:c.id, prevAgent:c.salesAgent??null}));
+    setLastDistributionSnapshot(snapshot);
     updateDb((db:any)=>{(db.contacts||[]).forEach((c:any)=>{if(assignments[c.id]) c.salesAgent=assignments[c.id];});});
     const agentCount=new Set(Object.values(assignments)).size;
     showToast(`Assigned ${total} contact${total!==1?"s":""} across ${agentCount} agent${agentCount!==1?"s":""}.`);
     setShowAssignModal(false);
     setAssignCounts({});
     setAssignSelectedMembers(new Set());
+  };
+
+  const undoDistribution = () => {
+    if(!lastDistributionSnapshot) return;
+    const snap=lastDistributionSnapshot;
+    updateDb((db:any)=>{
+      const map:Record<string,string|null>={};
+      snap.forEach(s=>map[s.id]=s.prevAgent);
+      (db.contacts||[]).forEach((c:any)=>{ if(c.id in map) c.salesAgent=map[c.id]; });
+    });
+    setLastDistributionSnapshot(null);
+    showToast("Distribution undone.");
   };
 
   const importContactsFromCSV = (file: File, campaignName: string) => {
@@ -1549,6 +1567,9 @@ export default function App() {
                     {isManager&&members.length>0&&contacts.length>0&&(
                       <button onClick={()=>{setAssignMode("even");setAssignSelectedMembers(new Set());setAssignCounts({});setShowAssignModal(true);}} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #7c3aed",background:"#fff",color:"#7c3aed",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚡ Distribute</button>
                     )}
+                    {isManager&&lastDistributionSnapshot&&(
+                      <button onClick={undoDistribution} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #e5740a",background:"#fff7ed",color:"#c2410c",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ Undo Distribution</button>
+                    )}
                     {isManager&&<button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>}
                     {isManager&&<label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:`1.5px solid ${importing?"#aaa":"#1a56db"}`,background:"#fff",color:importing?"#aaa":"#1a56db",fontSize:13,fontWeight:700,cursor:importing?"not-allowed":"pointer",fontFamily:"inherit",opacity:importing?.6:1}}>
                       {importing?<><span style={{width:10,height:10,border:"2px solid #1a56db",borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"pulse .8s linear infinite"}}/>Importing…</>:"↑ Import CSV"}
@@ -2058,12 +2079,17 @@ export default function App() {
                   })}
                 </div>
                 {/* Summary */}
-                <div style={{fontSize:12,color:"#888",background:"#f9f9f9",borderRadius:9,padding:"9px 12px",marginBottom:16}}>
+                <div style={{fontSize:12,color:"#888",background:"#f9f9f9",borderRadius:9,padding:"9px 12px",marginBottom:assignMode==="custom"&&customTotal>pool.length?8:16}}>
                   <span>Pool: <strong>{pool.length}</strong> contacts</span>
                   <span style={{margin:"0 10px"}}>·</span>
                   <span>Selected: <strong>{selectedList.length}</strong> member{selectedList.length!==1?"s":""}</span>
                   {assignMode==="custom"&&<><span style={{margin:"0 10px"}}>·</span><span>To assign: <strong>{customTotal}</strong></span></>}
                 </div>
+                {assignMode==="custom"&&customTotal>pool.length&&(
+                  <div style={{fontSize:12,color:"#b45309",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:9,padding:"8px 12px",marginBottom:16}}>
+                    ⚠ Total exceeds available contacts by <strong>{customTotal-pool.length}</strong>. Only the first <strong>{pool.length}</strong> will be assigned.
+                  </div>
+                )}
                 <div style={{display:"flex",gap:10}}>
                   <button className="ghost-btn" style={{flex:1}} onClick={()=>setShowAssignModal(false)}>Cancel</button>
                   <button className="primary-btn" style={{flex:1,opacity:selectedList.length?1:.4,cursor:selectedList.length?"pointer":"not-allowed"}} disabled={!selectedList.length} onClick={assignContactsRandomly}>
