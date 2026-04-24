@@ -1416,109 +1416,94 @@ export default function App() {
                   {anyActive&&<button onClick={clearFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
                 </div>
                 {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
-                {/* List rows */}
+                {/* List rows — accordion */}
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
                   {filtered.map((c:any)=>{
                     const sm=statusMeta[c.status]||statusMeta.contacted;
                     const lm=c.leadStatus?leadMeta[c.leadStatus]:null;
+                    const isOpen=openContactId===c.id;
+                    const copyField=(val:string,label:string)=>{ navigator.clipboard.writeText(val||""); showToast(label+" copied"); };
+                    const CopyBtn=({val,label}:{val:string,label:string})=>(
+                      <button onClick={e=>{e.stopPropagation();copyField(val,label);}} style={{padding:"2px 9px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+                    );
+                    const Field=({label,value}:{label:string,value:string})=>value?(
+                      <div style={{padding:"8px 0",borderBottom:"1px solid #f0f0f0"}}>
+                        <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:2}}>{label}</div>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+                          <div style={{fontSize:13,color:"#111",wordBreak:"break-word" as const,flex:1}}>{value}</div>
+                          <CopyBtn val={value} label={label}/>
+                        </div>
+                      </div>
+                    ):null;
                     return (
-                      <div key={c.id} onClick={()=>{ if(contactSelectMode){ setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(c.id)?n.delete(c.id):n.add(c.id); return n; }); } else { setOpenContactId(c.id); } }} style={{background:"#fff",border:`1.5px solid ${contactSelectMode&&selectedContactIds.has(c.id)?"#1a56db":"#ebebeb"}`,borderRadius:12,padding:"12px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",transition:"box-shadow .12s"}} onMouseEnter={e=>e.currentTarget.style.boxShadow="0 2px 12px rgba(0,0,0,.07)"} onMouseLeave={e=>e.currentTarget.style.boxShadow="none"}>
-                        {contactSelectMode&&(
-                          <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${selectedContactIds.has(c.id)?"#1a56db":"#ccc"}`,background:selectedContactIds.has(c.id)?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                            {selectedContactIds.has(c.id)&&<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      <div key={c.id} style={{background:"#fff",border:`1.5px solid ${isOpen?"#1a56db":contactSelectMode&&selectedContactIds.has(c.id)?"#1a56db":"#ebebeb"}`,borderRadius:12,overflow:"hidden",transition:"border-color .15s"}}>
+                        {/* Header row */}
+                        <div onClick={()=>{ if(contactSelectMode){ setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(c.id)?n.delete(c.id):n.add(c.id); return n; }); } else { setOpenContactId(prev=>prev===c.id?null:c.id); } }} style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",background:isOpen?"#f8faff":"#fff",transition:"background .12s"}}>
+                          {contactSelectMode&&(
+                            <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${selectedContactIds.has(c.id)?"#1a56db":"#ccc"}`,background:selectedContactIds.has(c.id)?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                              {selectedContactIds.has(c.id)&&<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                            </div>
+                          )}
+                          <div style={{width:36,height:36,borderRadius:10,background:isOpen?"#1a56db":"#e8efff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:isOpen?"#fff":"#1a56db",flexShrink:0,transition:"all .15s"}}>{initials(c.name||"?")}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name||"Unknown"}</div>
+                            <div style={{fontSize:12,color:"#888",marginTop:1}}>{c.phone||"—"}{c.storeType?` · ${c.storeType}`:""}</div>
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+                            {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20}}>{lm.label}</span>}
+                            <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
+                            {c.campaign&&<span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",padding:"2px 7px",borderRadius:20,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaign}</span>}
+                            {c.salesAgent&&<span style={{fontSize:11,color:"#555",background:"#f5f5f5",padding:"2px 8px",borderRadius:20}}>{c.salesAgent}</span>}
+                            {!contactSelectMode&&<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isOpen?"#1a56db":"#bbb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{transform:isOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s",flexShrink:0}}><polyline points="9 18 15 12 9 6"/></svg>}
+                          </div>
+                        </div>
+                        {/* Expandable detail panel */}
+                        {isOpen&&(
+                          <div onClick={e=>e.stopPropagation()} style={{borderTop:"1.5px solid #e8efff",padding:"16px 16px 14px",background:"#f8faff",animation:"fadeUp .15s ease both"}}>
+                            {/* Fields grid */}
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
+                              <Field label="Phone"               value={c.phone||""}/>
+                              <Field label="Mobile / Alt. Phone" value={c.phone2||""}/>
+                              <Field label="Store ID"            value={c.storeId||""}/>
+                              <Field label="REN ID"              value={c.renId||""}/>
+                              <Field label="Store Type"          value={c.storeType||""}/>
+                              <Field label="Company / Agency"    value={c.company||""}/>
+                              <Field label="Agent (from sheet)"  value={c.agentName||""}/>
+                              <Field label="Date"                value={c.date?fmt(c.date):""}/>
+                              <Field label="Campaign"            value={c.campaign||""}/>
+                              <Field label="Remarks / State"     value={c.remarks||""}/>
+                            </div>
+                            {/* Sales agent + lead status */}
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14,paddingTop:14,borderTop:"1.5px solid #e8efff"}}>
+                              <div>
+                                <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
+                                <select value={c.salesAgent||""} onChange={e=>updateContactSalesAgent(c.id,e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+                                  <option value="">Unassigned</option>
+                                  {members.map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Lead Status</div>
+                                <div style={{display:"flex",gap:6}}>
+                                  {(["hot","warm","cold"] as const).map(ls=>{
+                                    const llm=leadMeta[ls];
+                                    const active=c.leadStatus===ls;
+                                    return <button key={ls} onClick={()=>updateContactLeadStatus(c.id,active?null:ls)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                            {/* Action buttons */}
+                            <div style={{display:"flex",gap:8,marginTop:12}}>
+                              <button onClick={()=>{ const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n"); navigator.clipboard.writeText(txt); showToast("All details copied"); }} style={{flex:1,padding:"8px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
+                              <button onClick={()=>{ if(window.confirm(`Delete ${c.name||"this contact"}?`)){ deleteContact(c.id); setOpenContactId(null); } }} style={{padding:"8px 16px",borderRadius:9,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+                            </div>
                           </div>
                         )}
-                        <div style={{width:36,height:36,borderRadius:10,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(c.name||"?")}</div>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:700,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name||"Unknown"}</div>
-                          <div style={{fontSize:12,color:"#888",marginTop:1}}>{c.phone||"—"}{c.storeType?` · ${c.storeType}`:""}</div>
-                        </div>
-                        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
-                          {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20}}>{lm.label}</span>}
-                          <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
-                          {c.campaign&&<span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",padding:"2px 7px",borderRadius:20,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaign}</span>}
-                          {c.salesAgent&&<span style={{fontSize:11,color:"#555",background:"#f5f5f5",padding:"2px 8px",borderRadius:20}}>{c.salesAgent}</span>}
-                          {!contactSelectMode&&<button onClick={e=>{ e.stopPropagation(); if(window.confirm(`Delete ${c.name||"this contact"}?`)) deleteContact(c.id); }} style={{background:"none",border:"none",cursor:"pointer",color:"#ddd",padding:4,display:"flex",alignItems:"center"}} title="Delete"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></button>}
-                          {!contactSelectMode&&<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>}
-                        </div>
                       </div>
                     );
                   })}
                 </div>
-                {/* Contact detail drawer */}
-                {openContactId&&(()=>{
-                  const c=contacts.find((x:any)=>x.id===openContactId);
-                  if(!c) return null;
-                  const sm=statusMeta[c.status]||statusMeta.contacted;
-                  const copy=(val:string,label:string)=>{ navigator.clipboard.writeText(val||""); showToast(label+" copied"); };
-                  const CopyBtn=({val,label}:{val:string,label:string})=>(
-                    <button onClick={()=>copy(val,label)} style={{padding:"3px 10px",borderRadius:7,border:"1.5px solid #e5e5e5",background:"#fafafa",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}} title={`Copy ${label}`}>Copy</button>
-                  );
-                  const Field=({label,value}:{label:string,value:string})=>value?(
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 0",borderBottom:"1px solid #f5f5f5",gap:12}}>
-                      <div>
-                        <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5,marginBottom:2}}>{label}</div>
-                        <div style={{fontSize:14,color:"#111",wordBreak:"break-word"}}>{value}</div>
-                      </div>
-                      <CopyBtn val={value} label={label}/>
-                    </div>
-                  ):null;
-                  return (
-                    <div style={{position:"fixed",inset:0,zIndex:200,display:"flex"}} onClick={()=>setOpenContactId(null)}>
-                      <div style={{flex:1,background:"rgba(0,0,0,.35)"}}/>
-                      <div onClick={e=>e.stopPropagation()} style={{width:420,maxWidth:"100vw",background:"#fff",height:"100%",overflowY:"auto",boxShadow:"-4px 0 32px rgba(0,0,0,.12)",display:"flex",flexDirection:"column"}}>
-                        {/* Drawer header */}
-                        <div style={{padding:"20px 24px 16px",borderBottom:"1px solid #f0f0f0",display:"flex",alignItems:"center",gap:14}}>
-                          <div style={{width:48,height:48,borderRadius:14,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(c.name||"?")}</div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:800,fontSize:17,letterSpacing:-.3}}>{c.name||"Unknown"}</div>
-                            <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 9px",borderRadius:20}}>{sm.label}</span>
-                            {c.campaign&&<span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",padding:"2px 8px",borderRadius:20,marginLeft:6}}>{c.campaign}</span>}
-                          </div>
-                          <button onClick={()=>setOpenContactId(null)} style={{background:"none",border:"none",cursor:"pointer",color:"#aaa",fontSize:20,lineHeight:1,padding:4}}>✕</button>
-                        </div>
-                        {/* Fields */}
-                        <div style={{padding:"4px 24px 24px",flex:1}}>
-                          <Field label="Name"                value={c.name||""}/>
-                          <Field label="Phone"               value={c.phone||""}/>
-                          <Field label="Mobile / Alt. Phone" value={c.phone2||""}/>
-                          <Field label="Store ID"            value={c.storeId||""}/>
-                          <Field label="REN ID"              value={c.renId||""}/>
-                          <Field label="Store Type"          value={c.storeType||""}/>
-                          <Field label="Company / Agency"    value={c.company||""}/>
-                          <Field label="Remarks / State"     value={c.remarks||""}/>
-                          <Field label="Agent (from sheet)" value={c.agentName||""}/>
-                          <Field label="Date"            value={c.date?fmt(c.date):""}/>
-                          <Field label="Campaign"        value={c.campaign||""}/>
-                          {/* Sales agent selector */}
-                          <div style={{padding:"11px 0",borderBottom:"1px solid #f5f5f5"}}>
-                            <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
-                            <select value={c.salesAgent||""} onChange={e=>updateContactSalesAgent(c.id,e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fafafa"}}>
-                              <option value="">Unassigned</option>
-                              {members.map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
-                            </select>
-                          </div>
-                          {/* Lead status */}
-                          <div style={{padding:"14px 0",borderBottom:"1px solid #f5f5f5"}}>
-                            <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5,marginBottom:8}}>Lead Status</div>
-                            <div style={{display:"flex",gap:8}}>
-                              {(["hot","warm","cold"] as const).map(ls=>{
-                                const lm=leadMeta[ls];
-                                const active=c.leadStatus===ls;
-                                return <button key={ls} onClick={()=>updateContactLeadStatus(c.id,active?null:ls)} style={{flex:1,padding:"7px 0",borderRadius:9,border:`1.5px solid ${active?lm.color:"#e5e5e5"}`,background:active?lm.bg:"#fff",color:active?lm.color:"#aaa",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>
-                                  {ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {lm.label}
-                                </button>;
-                              })}
-                            </div>
-                          </div>
-                          {/* Copy all */}
-                          <button onClick={()=>{ const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n"); navigator.clipboard.writeText(txt); showToast("All details copied"); }} style={{marginTop:18,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All Details</button>
-                          <button onClick={()=>{ if(window.confirm(`Delete ${c.name||"this contact"}?`)){ deleteContact(c.id); setOpenContactId(null); } }} style={{marginTop:10,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete Contact</button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
                 {/* Deletion history */}
                 {deletionHistory.length>0&&(
                   <div style={{marginTop:32}}>
