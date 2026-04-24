@@ -496,6 +496,9 @@ export default function App() {
   const [activeFilterDropdown, setActiveFilterDropdown] = useState<string|null>(null);
   const [contactSelectMode, setContactSelectMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
+  const [contactSort, setContactSort]             = useState("status");
+  const [showAddContactModal, setShowAddContactModal] = useState(false);
+  const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
   const [showAssignModal, setShowAssignModal]     = useState(false);
   const [assignCounts, setAssignCounts]           = useState<Record<string,string>>({});
   const [assignFromUnassigned, setAssignFromUnassigned] = useState(true);
@@ -604,15 +607,35 @@ export default function App() {
   const clearContactFilters = useCallback(() => setContactFilters({status:[],lead:[],campaign:[],agent:[]}),[]);
   const filteredContacts  = useMemo(()=>{
     const cf=contactFilters; const q=contactSearch.trim().toLowerCase();
-    return allContacts.filter((c:any)=>{
+    const filtered=allContacts.filter((c:any)=>{
       if(cf.status?.length   && !cf.status.includes(c.status)) return false;
       if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
       if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
       if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
       if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
       return true;
-    }).sort((a:any,b:any)=>({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0));
-  },[allContacts,contactFilters,contactSearch]);
+    });
+    const today=todayKey();
+    const staleD=(c:any)=>c.lastTouched?Math.floor((Date.now()-new Date(c.lastTouched+"T00:00:00").getTime())/86400000):999;
+    const queueScore=(c:any)=>{
+      if(c.callbackDate&&c.callbackDate<today) return 100;
+      if(c.callbackDate===today) return 90;
+      const d=staleD(c);
+      if(c.leadStatus==="hot") return 80-Math.min(d,20);
+      if(c.leadStatus==="warm"&&d>3) return 60-Math.min(d,20);
+      if(d>7) return 40-Math.min(d,20);
+      return d>3?10:0;
+    };
+    const leadP:any={hot:3,warm:2,cold:1};
+    return filtered.sort((a:any,b:any)=>{
+      if(contactSort==="name")   return (a.name||"").localeCompare(b.name||"");
+      if(contactSort==="newest") return (b.date||"").localeCompare(a.date||"");
+      if(contactSort==="stale")  return staleD(b)-staleD(a);
+      if(contactSort==="hot")    return (leadP[b.leadStatus]||0)-(leadP[a.leadStatus]||0);
+      if(contactSort==="queue")  return queueScore(b)-queueScore(a);
+      return ({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0);
+    });
+  },[allContacts,contactFilters,contactSearch,contactSort]);
 
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
   const pipelineBase = useMemo(()=>{
@@ -752,7 +775,7 @@ export default function App() {
 
   const addContactNote = useCallback((contactId:string, text:string, author:string) => {
     if(!text.trim()) return;
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((x:any)=>x.id===contactId); if(!c) return; if(!c.notes) c.notes=[]; c.notes.unshift({id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}); });
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((x:any)=>x.id===contactId); if(!c) return; if(!c.notes) c.notes=[]; c.notes.unshift({id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}); c.lastTouched=todayKey(); });
   },[]);
 
   const bulkUpdateContactStatus = useCallback((status:string, ids:Set<string>) => {
@@ -762,6 +785,18 @@ export default function App() {
     setSelectedContactIds(new Set());
     showToast(`Updated ${size} contact${size!==1?"s":""} to ${CONTACT_STATUS_META[status as keyof typeof CONTACT_STATUS_META]?.label||status}.`);
   },[showToast]);
+
+  const addContactManually = useCallback(() => {
+    const f=addContactForm;
+    if(!f.name.trim()&&!f.phone.trim()){showToast("Name or phone is required.");return;}
+    updateDb((db:any)=>{
+      if(!db.contacts) db.contacts=[];
+      db.contacts.push({id:uid(),name:f.name.trim(),phone:f.phone.trim(),phone2:"",storeType:"",company:"",storeId:"",renId:"",agentName:"",date:todayKey(),campaign:f.campaign.trim(),remarks:f.remarks.trim(),status:f.status||"contacted",leadStatus:null,salesAgent:f.salesAgent||"",lastTouched:todayKey(),callbackDate:"",notes:[]});
+    });
+    showToast(`Contact "${f.name||f.phone}" added.`);
+    setShowAddContactModal(false);
+    setAddContactForm({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
+  },[addContactForm,showToast]);
 
   const handlePipelineDrop = useCallback((e:React.DragEvent,targetStatus:string)=>{
     e.preventDefault();
@@ -1543,6 +1578,35 @@ export default function App() {
                   </div>
                 );
               })()}
+              {/* Team leaderboard */}
+              {members.length>1&&dayTasks.some((t:any)=>t.type==="telesales")&&(()=>{
+                const lb:Record<string,{name:string,total:number,interested:number}>={};
+                dayTasks.filter((t:any)=>t.type==="telesales").forEach((t:any)=>{
+                  (t.assignedMembers||[]).forEach((m:any)=>{
+                    if(!lb[m.id]) lb[m.id]={name:m.name,total:0,interested:0};
+                    const s=t.memberStats?.[m.id]||{};
+                    lb[m.id].total+=(s.total||0); lb[m.id].interested+=(s.interested||0);
+                  });
+                });
+                const ranked=Object.values(lb).sort((a,b)=>b.total-a.total||b.interested-a.interested);
+                if(!ranked.length||ranked.every(r=>r.total===0)) return null;
+                const medals=["🥇","🥈","🥉"];
+                return (
+                  <div style={{marginBottom:14,background:"#fff",border:"1.5px solid #ebebeb",borderRadius:14,padding:"12px 16px"}}>
+                    <div style={{fontWeight:700,fontSize:13,marginBottom:8}}>🏆 Today's Leaderboard</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:4}}>
+                      {ranked.map((r,i)=>(
+                        <div key={r.name} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 8px",background:i===0?"#fffbeb":"#fafafa",borderRadius:8}}>
+                          <span style={{fontSize:13,fontWeight:800,color:i===0?"#d97706":i===1?"#9ca3af":"#a07850",width:22,textAlign:"center"}}>{medals[i]||`${i+1}`}</span>
+                          <div style={{flex:1,fontWeight:600,fontSize:13}}>{r.name}</div>
+                          <span style={{fontSize:12,color:"#888"}}>{r.total} calls</span>
+                          {r.interested>0&&<span style={{fontSize:11,fontWeight:700,color:"#059669",background:"#f0fdf4",padding:"2px 7px",borderRadius:20}}>{r.interested} int.</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="daily-grid" style={{display:"grid",gridTemplateColumns:`${sidebarOpen?"240px":"40px"} 1fr`,gap:16,alignItems:"start",transition:"grid-template-columns .2s ease"}}>
                 {/* Sidebar */}
                 <div className="sidebar-panel open">
@@ -1785,7 +1849,16 @@ export default function App() {
                       </div>
                     );
                   })}
+                  <select value={contactSort} onChange={e=>setContactSort(e.target.value)} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 11px",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff",color:"#555",cursor:"pointer"}}>
+                    <option value="status">Sort: Status</option>
+                    <option value="queue">🔥 Priority Queue</option>
+                    <option value="name">A → Z</option>
+                    <option value="newest">Newest First</option>
+                    <option value="stale">Most Stale</option>
+                    <option value="hot">Hot Leads First</option>
+                  </select>
                   {anyActive&&<button onClick={clearContactFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
+                  <button onClick={()=>setShowAddContactModal(true)} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid #059669",background:"#f0fdf4",color:"#059669",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add Contact</button>
                 </div>
                 {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
                 {/* List rows — accordion */}
@@ -2235,6 +2308,50 @@ export default function App() {
                         </div> </div> );})}
                   </div> )}
               </div> <div style={{marginBottom:20}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Title</div> <input ref={modalRef} className="text-input" value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder={newTaskType==="telesales"?"e.g. Morning Call Session":newTaskType==="whatsapp"?"e.g. April Follow-up":"e.g. Prepare weekly report"}/> </div> <div style={{display:"flex",gap:10}}> <button className="ghost-btn" style={{flex:1}} onClick={()=>{setModal(null);setNewTaskTitle("");}}>Cancel</button> <button className="primary-btn" style={{flex:1}} onClick={addTask} disabled={!newTaskTitle.trim()||newTaskMemberIds.length===0||members.length===0}>Create Task</button> </div> </div> </div> )}
+        {showAddContactModal&&(
+          <div className="modal-overlay" onClick={()=>setShowAddContactModal(false)}>
+            <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
+              <div style={{fontWeight:800,fontSize:18,marginBottom:4,letterSpacing:-.3}}>Add Contact</div>
+              <div style={{fontSize:13,color:"#888",marginBottom:18}}>Manually add a single contact to your list</div>
+              <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                <input autoFocus placeholder="Name *" value={addContactForm.name} onChange={e=>setAddContactForm(f=>({...f,name:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addContactManually()} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"9px 12px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                <input placeholder="Phone *" value={addContactForm.phone} onChange={e=>setAddContactForm(f=>({...f,phone:e.target.value}))} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"9px 12px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:5}}>Call Status</div>
+                    <select value={addContactForm.status} onChange={e=>setAddContactForm(f=>({...f,status:e.target.value}))} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"8px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+                      <option value="contacted">Contacted</option>
+                      <option value="callback">Callback</option>
+                      <option value="interested">Interested</option>
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:5}}>Campaign</div>
+                    <input placeholder="Campaign name" value={addContactForm.campaign} onChange={e=>setAddContactForm(f=>({...f,campaign:e.target.value}))} list="campaign-list" style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"8px 10px",fontSize:13,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                    <datalist id="campaign-list">{contactCampaigns.map(cp=><option key={cp} value={cp}/>)}</datalist>
+                  </div>
+                </div>
+                {isManager&&members.length>0&&(
+                  <div>
+                    <div style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:5}}>Assign to Agent</div>
+                    <select value={addContactForm.salesAgent} onChange={e=>setAddContactForm(f=>({...f,salesAgent:e.target.value}))} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"8px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+                      <option value="">Unassigned</option>
+                      {members.map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <div style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:5}}>Remarks</div>
+                  <input placeholder="Optional notes…" value={addContactForm.remarks} onChange={e=>setAddContactForm(f=>({...f,remarks:e.target.value}))} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"8px 10px",fontSize:13,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:10,marginTop:20}}>
+                <button className="ghost-btn" style={{flex:1}} onClick={()=>setShowAddContactModal(false)}>Cancel</button>
+                <button className="primary-btn" style={{flex:1}} onClick={addContactManually} disabled={!addContactForm.name.trim()&&!addContactForm.phone.trim()}>Add Contact</button>
+              </div>
+            </div>
+          </div>
+        )}
         {modal==="addMember"&&(
           <div className="modal-overlay" onClick={()=>{setModal(null);setMemberInput("");}}> <div className="modal" onClick={e=>e.stopPropagation()}> <div style={{fontWeight:800,fontSize:18,marginBottom:4,letterSpacing:-.3}}>Add Telesales Member</div> <div style={{fontSize:13,color:"#888",marginBottom:20}}>Enter the member's full name</div> <input ref={modalRef} className="text-input" value={memberInput} onChange={e=>setMemberInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addMember()} placeholder="e.g. Ahmad Fariz" style={{marginBottom:16}}/> <div style={{display:"flex",gap:10}}> <button className="ghost-btn" style={{flex:1}} onClick={()=>{setModal(null);setMemberInput("");}}>Cancel</button> <button className="primary-btn" style={{flex:1}} onClick={addMember} disabled={!memberInput.trim()}>Add Member</button> </div> </div> </div> )}
         {modal==="addCampaign"&&(
