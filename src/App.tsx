@@ -604,9 +604,7 @@ export default function App() {
   const clearContactFilters = useCallback(() => setContactFilters({status:[],lead:[],campaign:[],agent:[]}),[]);
   const filteredContacts  = useMemo(()=>{
     const cf=contactFilters; const q=contactSearch.trim().toLowerCase();
-    const myName = !isManager && loggedInMemberId ? (members.find((m:any)=>m.id===loggedInMemberId)?.name||null) : null;
     return allContacts.filter((c:any)=>{
-      if(myName && c.salesAgent !== myName) return false;
       if(cf.status?.length   && !cf.status.includes(c.status)) return false;
       if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
       if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
@@ -614,20 +612,18 @@ export default function App() {
       if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
       return true;
     }).sort((a:any,b:any)=>({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0));
-  },[allContacts,contactFilters,contactSearch,isManager,loggedInMemberId,members]);
+  },[allContacts,contactFilters,contactSearch]);
 
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
   const pipelineBase = useMemo(()=>{
-    const myName = !isManager && loggedInMemberId ? (members.find((m:any)=>m.id===loggedInMemberId)?.name||null) : null;
     const q = pipelineSearch.trim().toLowerCase();
     return allContacts.filter((c:any)=>{
-      if(myName && c.salesAgent !== myName) return false;
       if(pipelineCampaignFilter && c.campaign !== pipelineCampaignFilter) return false;
       if(pipelineAgentFilter && (c.salesAgent||"__none__") !== pipelineAgentFilter) return false;
       if(q && !`${c.name} ${c.phone} ${c.storeType||""} ${c.company||""}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  },[allContacts,pipelineSearch,pipelineCampaignFilter,pipelineAgentFilter,isManager,loggedInMemberId,members]);
+  },[allContacts,pipelineSearch,pipelineCampaignFilter,pipelineAgentFilter]);
 
   const handlePipelineDragStart = useCallback((e:React.DragEvent,contactId:string)=>{
     setDraggingContactId(contactId);
@@ -1518,7 +1514,7 @@ export default function App() {
                 );
               })()}
               {/* Today's team call progress */}
-              {isManager&&callTarget>0&&dayTasks.some((t:any)=>t.type==="telesales")&&(()=>{
+              {callTarget>0&&dayTasks.some((t:any)=>t.type==="telesales")&&(()=>{
                 const entries:Record<string,{name:string,total:number,interested:number}>={};
                 dayTasks.filter((t:any)=>t.type==="telesales").forEach((t:any)=>{
                   (t.assignedMembers||[]).forEach((m:any)=>{
@@ -1668,7 +1664,7 @@ export default function App() {
               {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"}]},
               {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
               {key:"campaign",label:"Campaign", options:contactCampaigns.map(cp=>({val:cp,label:cp}))},
-              ...(isManager?[{key:"agent",label:"Agent",options:[...contactAgentOpts.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]}]:[]),
+              {key:"agent",label:"Agent",options:[...contactAgentOpts.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]},
             ];
             return (
               <div className="fade-up">
@@ -1678,9 +1674,9 @@ export default function App() {
                     <div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {filtered.length} shown{anyActive?" (filtered)":""}</div>
                   </div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
-                    {isManager&&contactSelectMode&&selectedContactIds.size>0&&(
+                    {contactSelectMode&&selectedContactIds.size>0&&(
                       <>
-                        <button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete ({selectedContactIds.size})</button>
+                        {isManager&&<button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete ({selectedContactIds.size})</button>}
                         {(["contacted","callback","interested"] as const).map(st=>{const stm=CONTACT_STATUS_META[st];return <button key={st} onClick={()=>bulkUpdateContactStatus(st,selectedContactIds)} style={{padding:"8px 12px",borderRadius:10,border:`1.5px solid ${stm.color}`,background:stm.bg,color:stm.color,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{stm.label}</button>;})}
                       </>
                     )}
@@ -1693,11 +1689,11 @@ export default function App() {
                     {isManager&&lastDistributionSnapshot&&(
                       <button onClick={undoDistribution} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #e5740a",background:"#fff7ed",color:"#c2410c",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ Undo Distribution</button>
                     )}
-                    {isManager&&<button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>}
-                    {isManager&&<label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:`1.5px solid ${importing?"#aaa":"#1a56db"}`,background:"#fff",color:importing?"#aaa":"#1a56db",fontSize:13,fontWeight:700,cursor:importing?"not-allowed":"pointer",fontFamily:"inherit",opacity:importing?.6:1}}>
+                    <button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>
+                    <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:`1.5px solid ${importing?"#aaa":"#1a56db"}`,background:"#fff",color:importing?"#aaa":"#1a56db",fontSize:13,fontWeight:700,cursor:importing?"not-allowed":"pointer",fontFamily:"inherit",opacity:importing?.6:1}}>
                       {importing?<><span style={{width:10,height:10,border:"2px solid #1a56db",borderTopColor:"transparent",borderRadius:"50%",display:"inline-block",animation:"pulse .8s linear infinite"}}/>Importing…</>:"↑ Import CSV"}
                       <input type="file" accept=".csv" disabled={importing} style={{display:"none"}} onChange={e=>{const f=e.target.files?.[0]; if(f){ setPendingCampaignName(f.name.replace(/\.csv$/i,"").trim()); setPendingImport({file:f}); } e.target.value="";}}/>
-                    </label>}
+                    </label>
                   </div>
                 </div>
                 {/* Agent panel — managers only */}
@@ -1862,7 +1858,7 @@ export default function App() {
                       {contactCampaigns.map(cp=><option key={cp} value={cp}>{cp}</option>)}
                     </select>
                   )}
-                  {isManager&&contactAgentOpts.length>0&&(
+                  {contactAgentOpts.length>0&&(
                     <select value={pipelineAgentFilter} onChange={e=>setPipelineAgentFilter(e.target.value)} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 11px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff",color:pipelineAgentFilter?"#1a56db":"#555",borderColor:pipelineAgentFilter?"#1a56db":"#e5e5e5"}}>
                       <option value="">All Agents</option>
                       {contactAgentOpts.map(a=><option key={a} value={a}>{a}</option>)}
