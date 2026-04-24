@@ -156,6 +156,14 @@ textarea,input,select{font-family:inherit;}
   .stat-grid-4{grid-template-columns:repeat(2,1fr)!important;}
   .perf-grid{grid-template-columns:1fr!important;}
 }
+.pipeline-wrap{display:flex;gap:14px;align-items:flex-start;overflow-x:auto;padding-bottom:20px;}
+.pipeline-col{flex:1;min-width:220px;border-radius:14px;overflow:hidden;border:2px solid transparent;transition:border-color .15s;}
+.pipeline-col.drag-over{border-color:currentColor;}
+.pipeline-col-body{padding:10px;display:flex;flex-direction:column;gap:8px;min-height:120px;max-height:calc(100vh - 240px);overflow-y:auto;}
+.pipeline-col-body.drag-over{background:#f0f6ff;}
+.pipeline-card{background:#fff;border:1.5px solid #ebebeb;border-radius:10px;padding:10px 12px;cursor:grab;transition:box-shadow .12s,opacity .15s;user-select:none;}
+.pipeline-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:#bfdbfe;}
+.pipeline-card:active{cursor:grabbing;}
 `
 
 function Counter({ value, onChange, size="normal" }: { value:number; onChange:(v:number)=>void; size?:string }) {
@@ -277,6 +285,38 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
           </div>
         </div>
       )}
+    </div>
+  );
+});
+
+// ── Pipeline board constants & card ─────────────────────────────────────────
+const PIPELINE_COLS = [
+  {key:"contacted",  label:"Contacted",  color:"#2563eb",bg:"#eff6ff"},
+  {key:"callback",   label:"Callback",   color:"#d97706",bg:"#fffbeb"},
+  {key:"interested", label:"Interested", color:"#059669",bg:"#f0fdf4"},
+] as const;
+
+const PipelineCard = React.memo(function PipelineCard({c,isDragging,onDragStart,onClick}:any){
+  const lm = c.leadStatus ? CONTACT_LEAD_META[c.leadStatus] : null;
+  const sub = [c.storeType,c.salesAgent].filter(Boolean).join(" · ");
+  return (
+    <div
+      className="pipeline-card"
+      draggable
+      onDragStart={e=>onDragStart(e,c.id)}
+      onDragEnd={e=>e.preventDefault()}
+      onClick={()=>onClick(c.id)}
+      style={{opacity:isDragging?.4:1}}
+    >
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div style={{width:30,height:30,borderRadius:8,background:"#e8efff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#1a56db",flexShrink:0}}>{initials(c.name||"?")}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name||"Unknown"}</div>
+          <div style={{fontSize:11,color:"#888"}}>{c.phone||"—"}</div>
+        </div>
+        {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20,flexShrink:0}}>{lm.label}</span>}
+      </div>
+      {sub&&<div style={{fontSize:11,color:"#aaa",marginTop:5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>}
     </div>
   );
 });
@@ -421,6 +461,12 @@ export default function App() {
   const [syncing, setSyncing]                     = useState(true);
   const [syncError, setSyncError]                 = useState(false);
   const [importing, setImporting]                 = useState(false);
+  const [pipelineSearch,         setPipelineSearch]        = useState("");
+  const [pipelineCampaignFilter, setPipelineCampaignFilter] = useState("");
+  const [pipelineAgentFilter,    setPipelineAgentFilter]   = useState("");
+  const [draggingContactId,      setDraggingContactId]     = useState<string|null>(null);
+  const [dragOverColumn,         setDragOverColumn]        = useState<string|null>(null);
+  const [pipelineDetailId,       setPipelineDetailId]      = useState<string|null>(null);
   const [exporting, setExporting]                 = useState(false);
 
   const modalRef      = useRef<HTMLInputElement>(null);
@@ -518,6 +564,30 @@ export default function App() {
       return true;
     }).sort((a:any,b:any)=>({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0));
   },[allContacts,contactFilters,contactSearch,isManager,loggedInMemberId,members]);
+
+  // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
+  const pipelineBase = useMemo(()=>{
+    const myName = !isManager && loggedInMemberId ? (members.find((m:any)=>m.id===loggedInMemberId)?.name||null) : null;
+    const q = pipelineSearch.trim().toLowerCase();
+    return allContacts.filter((c:any)=>{
+      if(myName && c.salesAgent !== myName) return false;
+      if(pipelineCampaignFilter && c.campaign !== pipelineCampaignFilter) return false;
+      if(pipelineAgentFilter && (c.salesAgent||"__none__") !== pipelineAgentFilter) return false;
+      if(q && !`${c.name} ${c.phone} ${c.storeType||""} ${c.company||""}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  },[allContacts,pipelineSearch,pipelineCampaignFilter,pipelineAgentFilter,isManager,loggedInMemberId,members]);
+
+  const handlePipelineDragStart = useCallback((e:React.DragEvent,contactId:string)=>{
+    setDraggingContactId(contactId);
+    e.dataTransfer.effectAllowed="move";
+  },[]);
+  const handlePipelineDragOver = useCallback((e:React.DragEvent,col:string)=>{
+    e.preventDefault();
+    setDragOverColumn(col);
+  },[]);
+  const handlePipelineDragEnd = useCallback(()=>{ setDraggingContactId(null); setDragOverColumn(null); },[]);
+  const handlePipelineCardClick = useCallback((id:string)=>setPipelineDetailId(id),[]);
 
   const handleUnlock = (r:string, memberId:string|null) => { setRole(r); setLoggedInMemberId(memberId||null); setPage("daily"); };
   const handleLock   = () => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); };
@@ -628,6 +698,12 @@ export default function App() {
   const updateContactStatus = useCallback((contactId:string, status:string) => {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.status=status; });
   },[]);
+
+  const handlePipelineDrop = useCallback((e:React.DragEvent,targetStatus:string)=>{
+    e.preventDefault();
+    setDraggingContactId(prev=>{ if(prev) updateContactStatus(prev,targetStatus); return null; });
+    setDragOverColumn(null);
+  },[updateContactStatus]);
 
   const deleteContactCb = useCallback((contactId:string) => {
     updateDb((db:any)=>{
@@ -1258,8 +1334,8 @@ export default function App() {
 
   const hasUnsaved = dayTasks.some((t:any)=>!t.saved);
   const navItems = isManager
-    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["export","Export"],["members","Members"],["settings","Settings"]]
-    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["mystats","My Stats"],["export","Export"],["members","Members"]];
+    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["export","Export"],["members","Members"],["settings","Settings"]]
+    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["mystats","My Stats"],["export","Export"],["members","Members"]];
 
   const perfSummary = buildPerformanceSummary();
   const previewRows = getPreviewRows();
@@ -1597,6 +1673,144 @@ export default function App() {
                           </div>
                         );
                       })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/*  PIPELINE  */}
+          {page==="pipeline"&&(()=>{
+            const pipelineDetail = pipelineDetailId ? allContacts.find((c:any)=>c.id===pipelineDetailId)||null : null;
+            const anyPipelineFilter = !!(pipelineSearch||pipelineCampaignFilter||pipelineAgentFilter);
+            return (
+              <div className="fade-up">
+                {/* Header + filters */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16,flexWrap:"wrap",gap:12}}>
+                  <div>
+                    <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Pipeline</div>
+                    <div style={{fontSize:13,color:"#888",marginTop:2}}>{allContacts.length} total · drag cards to move stages</div>
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:8,marginBottom:18,flexWrap:"wrap",alignItems:"center"}}>
+                  <input value={pipelineSearch} onChange={e=>setPipelineSearch(e.target.value)} placeholder="🔍 Search name, phone…" style={{flex:1,minWidth:150,border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 12px",fontSize:13,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                  {contactCampaigns.length>0&&(
+                    <select value={pipelineCampaignFilter} onChange={e=>setPipelineCampaignFilter(e.target.value)} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 11px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff",color:pipelineCampaignFilter?"#1a56db":"#555",borderColor:pipelineCampaignFilter?"#1a56db":"#e5e5e5"}}>
+                      <option value="">All Campaigns</option>
+                      {contactCampaigns.map(cp=><option key={cp} value={cp}>{cp}</option>)}
+                    </select>
+                  )}
+                  {isManager&&contactAgentOpts.length>0&&(
+                    <select value={pipelineAgentFilter} onChange={e=>setPipelineAgentFilter(e.target.value)} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 11px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff",color:pipelineAgentFilter?"#1a56db":"#555",borderColor:pipelineAgentFilter?"#1a56db":"#e5e5e5"}}>
+                      <option value="">All Agents</option>
+                      {contactAgentOpts.map(a=><option key={a} value={a}>{a}</option>)}
+                      <option value="__none__">Unassigned</option>
+                    </select>
+                  )}
+                  {anyPipelineFilter&&<button onClick={()=>{setPipelineSearch("");setPipelineCampaignFilter("");setPipelineAgentFilter("");}} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear</button>}
+                </div>
+                {/* Kanban columns */}
+                <div className="pipeline-wrap">
+                  {PIPELINE_COLS.map(col=>{
+                    const cards=pipelineBase.filter((c:any)=>c.status===col.key);
+                    const isOver=dragOverColumn===col.key;
+                    return (
+                      <div key={col.key} className={`pipeline-col${isOver?" drag-over":""}`} style={{color:col.color}}
+                        onDragOver={e=>handlePipelineDragOver(e,col.key)}
+                        onDragLeave={()=>setDragOverColumn(null)}
+                        onDrop={e=>handlePipelineDrop(e,col.key)}
+                      >
+                        {/* Column header */}
+                        <div style={{background:col.bg,padding:"10px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                          <span style={{fontWeight:800,fontSize:13,color:col.color,textTransform:"uppercase",letterSpacing:.5}}>{col.label}</span>
+                          <span style={{background:col.color,color:"#fff",borderRadius:99,padding:"1px 8px",fontSize:11,fontWeight:800}}>{cards.length}</span>
+                        </div>
+                        {/* Cards */}
+                        <div className={`pipeline-col-body${isOver?" drag-over":""}`} style={{background:isOver?col.bg+"40":"#fafafa"}}>
+                          {cards.map((c:any)=>(
+                            <PipelineCard
+                              key={c.id}
+                              c={c}
+                              isDragging={draggingContactId===c.id}
+                              onDragStart={handlePipelineDragStart}
+                              onClick={handlePipelineCardClick}
+                            />
+                          ))}
+                          {cards.length===0&&(
+                            <div style={{border:"1.5px dashed #ddd",borderRadius:9,padding:"20px 10px",textAlign:"center",color:"#ccc",fontSize:12,marginTop:4}}>Drop here</div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Detail modal */}
+                {pipelineDetail&&(
+                  <div className="modal-overlay" onClick={()=>setPipelineDetailId(null)}>
+                    <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:500}}>
+                      {(()=>{
+                        const c=pipelineDetail;
+                        const sm=CONTACT_STATUS_META[c.status]||CONTACT_STATUS_META.contacted;
+                        const fieldRow=(label:string,value:string)=>!value?null:(
+                          <div style={{padding:"7px 0",borderBottom:"1px solid #f0f0f0"}}>
+                            <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:2}}>{label}</div>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                              <div style={{fontSize:13,color:"#111",flex:1,wordBreak:"break-word" as const}}>{value}</div>
+                              <button onClick={()=>{navigator.clipboard.writeText(value);showToast(label+" copied");}} style={{padding:"2px 8px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+                            </div>
+                          </div>
+                        );
+                        return (
+                          <>
+                            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                              <div style={{width:38,height:38,borderRadius:11,background:"#e8efff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#1a56db",flexShrink:0}}>{initials(c.name||"?")}</div>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontWeight:800,fontSize:16,letterSpacing:-.3}}>{c.name||"Unknown"}</div>
+                                <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
+                              </div>
+                              <button onClick={()=>setPipelineDetailId(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#aaa",padding:"2px 6px"}}>✕</button>
+                            </div>
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px",marginBottom:14}}>
+                              {fieldRow("Phone",c.phone||"")}
+                              {fieldRow("Mobile / Alt. Phone",c.phone2||"")}
+                              {fieldRow("Store Type",c.storeType||"")}
+                              {fieldRow("Company / Agency",c.company||"")}
+                              {fieldRow("Store ID",c.storeId||"")}
+                              {fieldRow("REN ID",c.renId||"")}
+                              {fieldRow("Remarks",c.remarks||"")}
+                              {fieldRow("Campaign",c.campaign||"")}
+                              {fieldRow("Agent (sheet)",c.agentName||"")}
+                              {fieldRow("Date",c.date?fmt(c.date):"")}
+                            </div>
+                            {/* Call status */}
+                            <div style={{marginBottom:12}}>
+                              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Call Status</div>
+                              <div style={{display:"flex",gap:6}}>
+                                {(["contacted","callback","interested"] as const).map(st=>{const stm=CONTACT_STATUS_META[st];const active=c.status===st;return <button key={st} onClick={()=>updateContactStatus(c.id,st)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;})}
+                              </div>
+                            </div>
+                            {/* Lead status */}
+                            <div style={{marginBottom:12}}>
+                              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Lead Status</div>
+                              <div style={{display:"flex",gap:6}}>
+                                {(["hot","warm","cold"] as const).map(ls=>{const llm=CONTACT_LEAD_META[ls];const active=c.leadStatus===ls;return <button key={ls} onClick={()=>updateContactLeadStatusCb(c.id,active?null:ls)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;})}
+                              </div>
+                            </div>
+                            {/* Sales agent — manager only */}
+                            {isManager&&(
+                              <div style={{marginBottom:14}}>
+                                <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
+                                <select value={c.salesAgent||""} onChange={e=>updateContactSalesAgent(c.id,e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+                                  <option value="">Unassigned</option>
+                                  {members.map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
+                                </select>
+                              </div>
+                            )}
+                            <button onClick={()=>{const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Status: ${sm.label}`,`Lead: ${c.leadStatus||"unclassified"}`,`Agent: ${c.salesAgent||""}`,`Remarks: ${c.remarks||""}`].filter(l=>!l.endsWith(": ")).join("\n");navigator.clipboard.writeText(txt);showToast("Copied");}} style={{width:"100%",padding:"9px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
