@@ -176,7 +176,100 @@ function TargetBar({ label, value, target }: { label:string; value:number; targe
     </div> );
 }
 
-//  PIN Screen 
+// ── Contact page constants (module-level so they're never recreated) ────────
+const CONTACT_STATUS_META:Record<string,{label:string,color:string,bg:string}> = {
+  interested:{label:"Interested",color:"#059669",bg:"#f0fdf4"},
+  callback:  {label:"Callback",  color:"#d97706",bg:"#fffbeb"},
+  contacted: {label:"Contacted", color:"#2563eb",bg:"#eff6ff"},
+};
+const CONTACT_LEAD_META:Record<string,{label:string,color:string,bg:string}> = {
+  hot: {label:"Hot",  color:"#ef4444",bg:"#fff1f2"},
+  warm:{label:"Warm", color:"#d97706",bg:"#fffbeb"},
+  cold:{label:"Cold", color:"#2563eb",bg:"#eff6ff"},
+};
+
+// ── Memoised row — only re-renders when its own props change ─────────────────
+const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMode,members,onToggle,onSelect,onSalesAgent,onLeadStatus,onDelete,onToast}:any){
+  const sm=CONTACT_STATUS_META[c.status]||CONTACT_STATUS_META.contacted;
+  const lm=c.leadStatus?CONTACT_LEAD_META[c.leadStatus]:null;
+
+  const fieldRow=(label:string,value:string)=>!value?null:(
+    <div style={{padding:"8px 0",borderBottom:"1px solid #f0f0f0"}}>
+      <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:2}}>{label}</div>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
+        <div style={{fontSize:13,color:"#111",wordBreak:"break-word" as const,flex:1}}>{value}</div>
+        <button onClick={e=>{e.stopPropagation();navigator.clipboard.writeText(value);onToast(label+" copied");}} style={{padding:"2px 9px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{background:"#fff",border:`1.5px solid ${isOpen?"#1a56db":selectMode&&isSelected?"#1a56db":"#ebebeb"}`,borderRadius:12,overflow:"hidden",transition:"border-color .15s"}}>
+      {/* Header */}
+      <div onClick={()=>selectMode?onSelect(c.id):onToggle(c.id)} style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",background:isOpen?"#f8faff":"#fff",transition:"background .12s"}}>
+        {selectMode&&(
+          <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${isSelected?"#1a56db":"#ccc"}`,background:isSelected?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+            {isSelected&&<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+          </div>
+        )}
+        <div style={{width:36,height:36,borderRadius:10,background:isOpen?"#1a56db":"#e8efff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:isOpen?"#fff":"#1a56db",flexShrink:0,transition:"all .15s"}}>{initials(c.name||"?")}</div>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontWeight:700,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name||"Unknown"}</div>
+          <div style={{fontSize:12,color:"#888",marginTop:1}}>{c.phone||"—"}{c.storeType?` · ${c.storeType}`:""}</div>
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20}}>{lm.label}</span>}
+          <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
+          {c.campaign&&<span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",padding:"2px 7px",borderRadius:20,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaign}</span>}
+          {c.salesAgent&&<span style={{fontSize:11,color:"#555",background:"#f5f5f5",padding:"2px 8px",borderRadius:20}}>{c.salesAgent}</span>}
+          {!selectMode&&<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isOpen?"#1a56db":"#bbb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{transform:isOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s",flexShrink:0}}><polyline points="9 18 15 12 9 6"/></svg>}
+        </div>
+      </div>
+      {/* Expanded detail */}
+      {isOpen&&(
+        <div onClick={e=>e.stopPropagation()} style={{borderTop:"1.5px solid #e8efff",padding:"16px 16px 14px",background:"#f8faff",animation:"fadeUp .15s ease both"}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
+            {fieldRow("Phone",              c.phone||"")}
+            {fieldRow("Mobile / Alt. Phone",c.phone2||"")}
+            {fieldRow("Store ID",           c.storeId||"")}
+            {fieldRow("REN ID",             c.renId||"")}
+            {fieldRow("Store Type",         c.storeType||"")}
+            {fieldRow("Company / Agency",   c.company||"")}
+            {fieldRow("Agent (from sheet)", c.agentName||"")}
+            {fieldRow("Date",               c.date?fmt(c.date):"")}
+            {fieldRow("Campaign",           c.campaign||"")}
+            {fieldRow("Remarks / State",    c.remarks||"")}
+          </div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14,paddingTop:14,borderTop:"1.5px solid #e8efff"}}>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
+              <select value={c.salesAgent||""} onChange={e=>onSalesAgent(c.id,e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+                <option value="">Unassigned</option>
+                {(members||[]).map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Lead Status</div>
+              <div style={{display:"flex",gap:6}}>
+                {(["hot","warm","cold"] as const).map(ls=>{
+                  const llm=CONTACT_LEAD_META[ls];
+                  const active=c.leadStatus===ls;
+                  return <button key={ls} onClick={()=>onLeadStatus(c.id,active?null:ls)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;
+                })}
+              </div>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <button onClick={()=>{const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n");navigator.clipboard.writeText(txt);onToast("All details copied");}} style={{flex:1,padding:"8px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
+            <button onClick={()=>{if(window.confirm(`Delete ${c.name||"this contact"}?`)){onDelete(c.id);onToggle(null);}}} style={{padding:"8px 16px",borderRadius:9,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+//  PIN Screen
 const MAX_PIN_ATTEMPTS = 5;
 const PIN_LOCKOUT_MS   = 30_000;
 
@@ -457,19 +550,8 @@ export default function App() {
     showToast("Task copied to "+fmt(targetDate));
   };
 
-  const updateContactLeadStatus = (contactId:string, leadStatus:string|null) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
-  };
-
   const pushDeletionHistory = (label:string, contacts:any[]) => {
     setDeletionHistory(h=>[{hid:crypto.randomUUID(),label,contacts:[...contacts],timestamp:Date.now()},...h.slice(0,19)]);
-  };
-
-  const deleteContact = (contactId:string) => {
-    const c=(db.contacts||[]).find((c:any)=>c.id===contactId);
-    if(c) pushDeletionHistory(c.name||c.phone||"Contact",[c]);
-    updateDb((db:any)=>{ db.contacts=(db.contacts||[]).filter((c:any)=>c.id!==contactId); });
-    setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
   };
 
   const deleteSelectedContacts = () => {
@@ -500,9 +582,21 @@ export default function App() {
     showToast("Restored "+entry.label);
   };
 
-  const updateContactSalesAgent = (contactId:string, salesAgent:string) => {
+  const updateContactSalesAgent = useCallback((contactId:string, salesAgent:string) => {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.salesAgent=salesAgent; });
-  };
+  },[]);
+
+  const updateContactLeadStatusCb = useCallback((contactId:string, leadStatus:string|null) => {
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
+  },[]);
+
+  const deleteContactCb = useCallback((contactId:string) => {
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((x:any)=>x.id===contactId); if(c) pushDeletionHistory(c.name||c.phone||"Contact",[c]); db.contacts=(db.contacts||[]).filter((x:any)=>x.id!==contactId); });
+    setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
+  },[]);
+
+  const handleContactToggle = useCallback((id:string|null)=>setOpenContactId(prev=>prev===id?null:id),[]);
+  const handleContactSelect = useCallback((id:string)=>setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }),[]);
 
   const assignContactsRandomly = () => {
     const pool = [...(db.contacts||[])].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
@@ -1292,16 +1386,6 @@ export default function App() {
             const contacts  = allContacts;
             const filtered  = filteredContacts;
             const anyActive = Object.values(contactFilters).some((a:any)=>a.length>0)||contactSearch.trim().length>0;
-            const statusMeta:any = {
-              interested:{label:"Interested",color:"#059669",bg:"#f0fdf4"},
-              callback:  {label:"Callback",  color:"#d97706",bg:"#fffbeb"},
-              contacted: {label:"Contacted",  color:"#2563eb",bg:"#eff6ff"},
-            };
-            const leadMeta:any = {
-              hot: {label:"Hot",  color:"#ef4444",bg:"#fff1f2"},
-              warm:{label:"Warm", color:"#d97706",bg:"#fffbeb"},
-              cold:{label:"Cold", color:"#2563eb",bg:"#eff6ff"},
-            };
             const filterDefs = [
               {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"}]},
               {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
@@ -1426,91 +1510,22 @@ export default function App() {
                 {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
                 {/* List rows — accordion */}
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                  {filtered.map((c:any)=>{
-                    const sm=statusMeta[c.status]||statusMeta.contacted;
-                    const lm=c.leadStatus?leadMeta[c.leadStatus]:null;
-                    const isOpen=openContactId===c.id;
-                    const copyField=(val:string,label:string)=>{ navigator.clipboard.writeText(val||""); showToast(label+" copied"); };
-                    const CopyBtn=({val,label}:{val:string,label:string})=>(
-                      <button onClick={e=>{e.stopPropagation();copyField(val,label);}} style={{padding:"2px 9px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
-                    );
-                    const Field=({label,value}:{label:string,value:string})=>value?(
-                      <div style={{padding:"8px 0",borderBottom:"1px solid #f0f0f0"}}>
-                        <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:2}}>{label}</div>
-                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
-                          <div style={{fontSize:13,color:"#111",wordBreak:"break-word" as const,flex:1}}>{value}</div>
-                          <CopyBtn val={value} label={label}/>
-                        </div>
-                      </div>
-                    ):null;
-                    return (
-                      <div key={c.id} style={{background:"#fff",border:`1.5px solid ${isOpen?"#1a56db":contactSelectMode&&selectedContactIds.has(c.id)?"#1a56db":"#ebebeb"}`,borderRadius:12,overflow:"hidden",transition:"border-color .15s"}}>
-                        {/* Header row */}
-                        <div onClick={()=>{ if(contactSelectMode){ setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(c.id)?n.delete(c.id):n.add(c.id); return n; }); } else { setOpenContactId(prev=>prev===c.id?null:c.id); } }} style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",background:isOpen?"#f8faff":"#fff",transition:"background .12s"}}>
-                          {contactSelectMode&&(
-                            <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${selectedContactIds.has(c.id)?"#1a56db":"#ccc"}`,background:selectedContactIds.has(c.id)?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
-                              {selectedContactIds.has(c.id)&&<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                            </div>
-                          )}
-                          <div style={{width:36,height:36,borderRadius:10,background:isOpen?"#1a56db":"#e8efff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:isOpen?"#fff":"#1a56db",flexShrink:0,transition:"all .15s"}}>{initials(c.name||"?")}</div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{fontWeight:700,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name||"Unknown"}</div>
-                            <div style={{fontSize:12,color:"#888",marginTop:1}}>{c.phone||"—"}{c.storeType?` · ${c.storeType}`:""}</div>
-                          </div>
-                          <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
-                            {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20}}>{lm.label}</span>}
-                            <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
-                            {c.campaign&&<span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",padding:"2px 7px",borderRadius:20,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaign}</span>}
-                            {c.salesAgent&&<span style={{fontSize:11,color:"#555",background:"#f5f5f5",padding:"2px 8px",borderRadius:20}}>{c.salesAgent}</span>}
-                            {!contactSelectMode&&<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isOpen?"#1a56db":"#bbb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{transform:isOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s",flexShrink:0}}><polyline points="9 18 15 12 9 6"/></svg>}
-                          </div>
-                        </div>
-                        {/* Expandable detail panel */}
-                        {isOpen&&(
-                          <div onClick={e=>e.stopPropagation()} style={{borderTop:"1.5px solid #e8efff",padding:"16px 16px 14px",background:"#f8faff",animation:"fadeUp .15s ease both"}}>
-                            {/* Fields grid */}
-                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
-                              <Field label="Phone"               value={c.phone||""}/>
-                              <Field label="Mobile / Alt. Phone" value={c.phone2||""}/>
-                              <Field label="Store ID"            value={c.storeId||""}/>
-                              <Field label="REN ID"              value={c.renId||""}/>
-                              <Field label="Store Type"          value={c.storeType||""}/>
-                              <Field label="Company / Agency"    value={c.company||""}/>
-                              <Field label="Agent (from sheet)"  value={c.agentName||""}/>
-                              <Field label="Date"                value={c.date?fmt(c.date):""}/>
-                              <Field label="Campaign"            value={c.campaign||""}/>
-                              <Field label="Remarks / State"     value={c.remarks||""}/>
-                            </div>
-                            {/* Sales agent + lead status */}
-                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14,paddingTop:14,borderTop:"1.5px solid #e8efff"}}>
-                              <div>
-                                <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
-                                <select value={c.salesAgent||""} onChange={e=>updateContactSalesAgent(c.id,e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
-                                  <option value="">Unassigned</option>
-                                  {members.map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Lead Status</div>
-                                <div style={{display:"flex",gap:6}}>
-                                  {(["hot","warm","cold"] as const).map(ls=>{
-                                    const llm=leadMeta[ls];
-                                    const active=c.leadStatus===ls;
-                                    return <button key={ls} onClick={()=>updateContactLeadStatus(c.id,active?null:ls)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-                            {/* Action buttons */}
-                            <div style={{display:"flex",gap:8,marginTop:12}}>
-                              <button onClick={()=>{ const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n"); navigator.clipboard.writeText(txt); showToast("All details copied"); }} style={{flex:1,padding:"8px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
-                              <button onClick={()=>{ if(window.confirm(`Delete ${c.name||"this contact"}?`)){ deleteContact(c.id); setOpenContactId(null); } }} style={{padding:"8px 16px",borderRadius:9,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {filtered.map((c:any)=>(
+                    <ContactRow
+                      key={c.id}
+                      c={c}
+                      isOpen={openContactId===c.id}
+                      isSelected={selectedContactIds.has(c.id)}
+                      selectMode={contactSelectMode}
+                      members={members}
+                      onToggle={handleContactToggle}
+                      onSelect={handleContactSelect}
+                      onSalesAgent={updateContactSalesAgent}
+                      onLeadStatus={updateContactLeadStatusCb}
+                      onDelete={deleteContactCb}
+                      onToast={showToast}
+                    />
+                  ))}
                 </div>
                 {/* Deletion history */}
                 {deletionHistory.length>0&&(
