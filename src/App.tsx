@@ -446,7 +446,7 @@ export default function App() {
   useEffect(()=>{ if(!modal) return; const t=setTimeout(()=>modalRef.current?.focus(),60); return ()=>clearTimeout(t); },[modal]);
   useEffect(()=>{ setSelectedTaskId(null); },[currentDate]);
 
-  const showToast = (msg:string) => { if(toastTimerRef.current) clearTimeout(toastTimerRef.current); setToast(msg); toastTimerRef.current=setTimeout(()=>setToast(null),2200); };
+  const showToast = useCallback((msg:string) => { if(toastTimerRef.current) clearTimeout(toastTimerRef.current); setToast(msg); toastTimerRef.current=setTimeout(()=>setToast(null),2200); },[]);
 
   // updateDb — writes locally immediately, debounces Supabase writes to 1.2s
   const updateDb = useCallback((fn:(db:any)=>void) => setDb((prev:any)=>{
@@ -591,9 +591,13 @@ export default function App() {
   },[]);
 
   const deleteContactCb = useCallback((contactId:string) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((x:any)=>x.id===contactId); if(c) pushDeletionHistory(c.name||c.phone||"Contact",[c]); db.contacts=(db.contacts||[]).filter((x:any)=>x.id!==contactId); });
+    updateDb((db:any)=>{
+      const c=(db.contacts||[]).find((x:any)=>x.id===contactId);
+      if(c) setDeletionHistory(h=>[{hid:crypto.randomUUID(),label:c.name||c.phone||"Contact",contacts:[c],timestamp:Date.now()},...h.slice(0,19)]);
+      db.contacts=(db.contacts||[]).filter((x:any)=>x.id!==contactId);
+    });
     setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
-  },[]);
+  },[updateDb]);
 
   const handleContactToggle = useCallback((id:string|null)=>setOpenContactId(prev=>prev===id?null:id),[]);
   const handleContactSelect = useCallback((id:string)=>setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }),[]);
