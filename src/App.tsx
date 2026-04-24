@@ -451,6 +451,8 @@ export default function App() {
   const [showAssignModal, setShowAssignModal]     = useState(false);
   const [assignCounts, setAssignCounts]           = useState<Record<string,string>>({});
   const [assignFromUnassigned, setAssignFromUnassigned] = useState(true);
+  const [assignMode, setAssignMode]               = useState<"even"|"custom">("even");
+  const [assignSelectedMembers, setAssignSelectedMembers] = useState<Set<string>>(new Set());
   const [pendingImport, setPendingImport] = useState<{file:File}|null>(null);
   const [pendingCampaignName, setPendingCampaignName] = useState("");
   const [deletionHistory, setDeletionHistory] = useState<Array<{hid:string,label:string,contacts:any[],timestamp:number}>>([]);
@@ -718,20 +720,33 @@ export default function App() {
 
   const assignContactsRandomly = () => {
     const pool = [...(db.contacts||[])].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
-    const shuffled = pool;
-    for(let i=shuffled.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];}
+    // Fisher-Yates shuffle
+    for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
     const assignments: Record<string,string> = {};
-    let idx = 0;
-    for (const m of (db.members||[])) {
-      const n = Math.max(0, parseInt(assignCounts[m.id]||"0")||0);
-      for (let i=0; i<n && idx<shuffled.length; i++,idx++) assignments[shuffled[idx].id]=m.name;
+    if(assignMode==="even"){
+      const selected=(db.members||[]).filter((m:any)=>assignSelectedMembers.has(m.id));
+      if(!selected.length){showToast("Select at least one member to distribute to.");return;}
+      selected.forEach((m:any,i:number)=>{
+        const perMember=Math.ceil(pool.length/selected.length);
+        const start=i*perMember; const end=Math.min(start+perMember,pool.length);
+        for(let k=start;k<end;k++) assignments[pool[k].id]=m.name;
+      });
+    } else {
+      let idx=0;
+      for(const m of (db.members||[])){
+        if(!assignSelectedMembers.has(m.id)) continue;
+        const n=Math.max(0,parseInt(assignCounts[m.id]||"0")||0);
+        for(let i=0;i<n&&idx<pool.length;i++,idx++) assignments[pool[idx].id]=m.name;
+      }
     }
-    const total = Object.keys(assignments).length;
-    if (!total) { showToast("No contacts to assign — adjust counts or uncheck 'unassigned only'."); return; }
-    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(assignments[c.id]) c.salesAgent=assignments[c.id]; }); });
-    showToast(`Assigned ${total} contact${total!==1?"s":""} across ${Object.values(assignments).filter((v,i,a)=>a.indexOf(v)===i).length} agents.`);
+    const total=Object.keys(assignments).length;
+    if(!total){showToast("No contacts to assign — check pool size or counts.");return;}
+    updateDb((db:any)=>{(db.contacts||[]).forEach((c:any)=>{if(assignments[c.id]) c.salesAgent=assignments[c.id];});});
+    const agentCount=new Set(Object.values(assignments)).size;
+    showToast(`Assigned ${total} contact${total!==1?"s":""} across ${agentCount} agent${agentCount!==1?"s":""}.`);
     setShowAssignModal(false);
     setAssignCounts({});
+    setAssignSelectedMembers(new Set());
   };
 
   const importContactsFromCSV = (file: File, campaignName: string) => {
@@ -1532,7 +1547,7 @@ export default function App() {
                       <button onClick={()=>{ if(window.confirm(`Delete all ${contacts.length} contacts?`)) deleteAllContacts(); }} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete All</button>
                     )}
                     {isManager&&members.length>0&&contacts.length>0&&(
-                      <button onClick={()=>setShowAssignModal(true)} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #7c3aed",background:"#fff",color:"#7c3aed",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚡ Distribute</button>
+                      <button onClick={()=>{setAssignMode("even");setAssignSelectedMembers(new Set());setAssignCounts({});setShowAssignModal(true);}} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #7c3aed",background:"#fff",color:"#7c3aed",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>⚡ Distribute</button>
                     )}
                     {isManager&&<button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>}
                     {isManager&&<label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:`1.5px solid ${importing?"#aaa":"#1a56db"}`,background:"#fff",color:importing?"#aaa":"#1a56db",fontSize:13,fontWeight:700,cursor:importing?"not-allowed":"pointer",fontFamily:"inherit",opacity:importing?.6:1}}>
@@ -1995,37 +2010,70 @@ export default function App() {
             </div>
           </div>
         )}
-        {showAssignModal&&(
-          <div className="modal-overlay" onClick={()=>setShowAssignModal(false)}>
-            <div className="confirm-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420,width:"100%"}}>
-              <div style={{fontWeight:800,fontSize:17,marginBottom:4,letterSpacing:-.3}}>⚡ Distribute Contacts</div>
-              <div style={{fontSize:13,color:"#555",marginBottom:16,lineHeight:1.6}}>Set how many contacts each agent receives. They'll be picked randomly from the pool.</div>
-              <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:16,cursor:"pointer"}}>
-                <input type="checkbox" checked={assignFromUnassigned} onChange={e=>setAssignFromUnassigned(e.target.checked)} style={{width:15,height:15,cursor:"pointer"}}/>
-                Only assign from contacts with no agent yet
-              </label>
-              <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:18}}>
-                {(db.members||[]).map((m:any)=>(
-                  <div key={m.id} style={{display:"flex",alignItems:"center",gap:12}}>
-                    <div style={{width:28,height:28,borderRadius:8,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(m.name)}</div>
-                    <span style={{flex:1,fontSize:13,fontWeight:600}}>{m.name}</span>
-                    <input type="number" min="0" placeholder="0" value={assignCounts[m.id]||""} onChange={e=>setAssignCounts(prev=>({...prev,[m.id]:e.target.value}))} style={{width:70,border:"1.5px solid #e5e5e5",borderRadius:8,padding:"5px 8px",fontSize:13,fontFamily:"inherit",outline:"none",textAlign:"center"}}/>
-                    <span style={{fontSize:12,color:"#aaa",width:50}}>contacts</span>
-                  </div>
-                ))}
-              </div>
-              <div style={{fontSize:12,color:"#888",marginBottom:16}}>
-                Total to assign: <strong>{Object.values(assignCounts).reduce((s,v)=>s+(parseInt(v)||0),0)}</strong>
-                {" · Pool: "}
-                <strong>{(db.contacts||[]).filter((c:any)=>!(assignFromUnassigned&&c.salesAgent)).length}</strong> available
-              </div>
-              <div style={{display:"flex",gap:10}}>
-                <button className="ghost-btn" style={{flex:1}} onClick={()=>setShowAssignModal(false)}>Cancel</button>
-                <button className="primary-btn" style={{flex:1}} onClick={assignContactsRandomly}>Distribute Randomly</button>
+        {showAssignModal&&(()=>{
+          const pool=(db.contacts||[]).filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
+          const selectedList=(db.members||[]).filter((m:any)=>assignSelectedMembers.has(m.id));
+          const customTotal=Object.entries(assignCounts).filter(([id])=>assignSelectedMembers.has(id)).reduce((s,[,v])=>s+(parseInt(v)||0),0);
+          const perMember=selectedList.length>0?Math.ceil(pool.length/selectedList.length):0;
+          return (
+            <div className="modal-overlay" onClick={()=>setShowAssignModal(false)}>
+              <div className="confirm-modal" onClick={e=>e.stopPropagation()} style={{maxWidth:440,width:"100%"}}>
+                <div style={{fontWeight:800,fontSize:17,marginBottom:12,letterSpacing:-.3}}>⚡ Distribute Contacts</div>
+                {/* Mode tabs */}
+                <div style={{display:"flex",gap:6,marginBottom:16,background:"#f5f5f5",borderRadius:10,padding:4}}>
+                  {([["even","🎲 Even Split"],["custom","🔢 Custom Count"]] as const).map(([mode,label])=>(
+                    <button key={mode} onClick={()=>setAssignMode(mode)} style={{flex:1,padding:"7px 0",borderRadius:8,border:"none",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",background:assignMode===mode?"#fff":"transparent",color:assignMode===mode?"#111":"#888",boxShadow:assignMode===mode?"0 1px 4px rgba(0,0,0,.08)":"none",transition:"all .12s"}}>{label}</button>
+                  ))}
+                </div>
+                <div style={{fontSize:13,color:"#555",marginBottom:14,lineHeight:1.5}}>
+                  {assignMode==="even"
+                    ? "Select members — contacts will be split as evenly as possible among them."
+                    : "Select members and set exactly how many contacts each one receives."}
+                </div>
+                {/* Pool toggle */}
+                <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:14,cursor:"pointer"}}>
+                  <input type="checkbox" checked={assignFromUnassigned} onChange={e=>setAssignFromUnassigned(e.target.checked)} style={{width:15,height:15,cursor:"pointer"}}/>
+                  Only distribute contacts with no agent yet
+                </label>
+                {/* Member rows */}
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+                  {(db.members||[]).map((m:any)=>{
+                    const selected=assignSelectedMembers.has(m.id);
+                    const evenPreview=selected&&assignMode==="even"?perMember:null;
+                    return (
+                      <div key={m.id} onClick={()=>setAssignSelectedMembers(prev=>{const n=new Set(prev);n.has(m.id)?n.delete(m.id):n.add(m.id);return n;})} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,border:`1.5px solid ${selected?"#1a56db":"#e5e5e5"}`,background:selected?"#f0f6ff":"#fafafa",cursor:"pointer",transition:"all .12s"}}>
+                        <div style={{width:16,height:16,borderRadius:4,border:`2px solid ${selected?"#1a56db":"#ccc"}`,background:selected?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {selected&&<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        </div>
+                        <div style={{width:26,height:26,borderRadius:7,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(m.name)}</div>
+                        <span style={{flex:1,fontSize:13,fontWeight:600}}>{m.name}</span>
+                        {assignMode==="even"&&evenPreview!==null&&(
+                          <span style={{fontSize:12,color:"#1a56db",fontWeight:700,background:"#e8efff",padding:"2px 8px",borderRadius:20}}>~{evenPreview}</span>
+                        )}
+                        {assignMode==="custom"&&selected&&(
+                          <input type="number" min="0" placeholder="0" value={assignCounts[m.id]||""} onClick={e=>e.stopPropagation()} onChange={e=>setAssignCounts(prev=>({...prev,[m.id]:e.target.value}))} style={{width:65,border:"1.5px solid #1a56db",borderRadius:8,padding:"4px 8px",fontSize:13,fontFamily:"inherit",outline:"none",textAlign:"center",background:"#fff"}}/>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {/* Summary */}
+                <div style={{fontSize:12,color:"#888",background:"#f9f9f9",borderRadius:9,padding:"9px 12px",marginBottom:16}}>
+                  <span>Pool: <strong>{pool.length}</strong> contacts</span>
+                  <span style={{margin:"0 10px"}}>·</span>
+                  <span>Selected: <strong>{selectedList.length}</strong> member{selectedList.length!==1?"s":""}</span>
+                  {assignMode==="custom"&&<><span style={{margin:"0 10px"}}>·</span><span>To assign: <strong>{customTotal}</strong></span></>}
+                </div>
+                <div style={{display:"flex",gap:10}}>
+                  <button className="ghost-btn" style={{flex:1}} onClick={()=>setShowAssignModal(false)}>Cancel</button>
+                  <button className="primary-btn" style={{flex:1,opacity:selectedList.length?1:.4,cursor:selectedList.length?"pointer":"not-allowed"}} disabled={!selectedList.length} onClick={assignContactsRandomly}>
+                    {assignMode==="even"?"Distribute Evenly":"Distribute"}
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
         {pendingImport&&(
           <div className="modal-overlay" onClick={()=>setPendingImport(null)}>
             <div className="confirm-modal" onClick={e=>e.stopPropagation()}>
