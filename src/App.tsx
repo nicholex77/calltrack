@@ -324,14 +324,16 @@ export default function App() {
 
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
+    let mounted = true;
     loadRemote().then(data=>{
+      if(!mounted) return;
       if(data && Object.keys(data).length>0){
         const { __writerId:_, ...clean } = data;
         saveLocal(clean);
         setDb(clean);
       }
       setSyncing(false);
-    }).catch(()=>setSyncing(false));
+    }).catch(()=>{ if(mounted) setSyncing(false); });
 
     const channel = supabase
       .channel("calltrack-realtime")
@@ -345,10 +347,10 @@ export default function App() {
       })
       .subscribe();
 
-    return ()=>{ channel.unsubscribe(); supabase.removeChannel(channel); };
+    return ()=>{ mounted=false; channel.unsubscribe(); supabase.removeChannel(channel); };
   },[]);
 
-  useEffect(()=>{ if(modal) setTimeout(()=>modalRef.current?.focus(),60); },[modal]);
+  useEffect(()=>{ if(!modal) return; const t=setTimeout(()=>modalRef.current?.focus(),60); return ()=>clearTimeout(t); },[modal]);
   useEffect(()=>{ setSelectedTaskId(null); },[currentDate]);
 
   const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(null),2200); };
@@ -486,7 +488,8 @@ export default function App() {
 
   const assignContactsRandomly = () => {
     const pool = [...(db.contacts||[])].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
-    const shuffled = pool.sort(()=>Math.random()-.5);
+    const shuffled = pool;
+    for(let i=shuffled.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];}
     const assignments: Record<string,string> = {};
     let idx = 0;
     for (const m of (db.members||[])) {
@@ -598,6 +601,7 @@ export default function App() {
 
       showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}".`);
     };
+    reader.onerror = () => showToast("Failed to read file — try again.");
     reader.readAsText(file);
   };
 
@@ -616,8 +620,8 @@ export default function App() {
         if(s.interested>s.answered) s.interested=s.answered;
       } else if(field==="interested"){
         s.interested=Math.min(numVal,s.answered);
-      } else {
-        s[field]=numVal;
+      } else if(field==="notAnswered"){
+        s.notAnswered=numVal;
       }
     });
   };
@@ -625,7 +629,7 @@ export default function App() {
     updateDb((db:any)=>{ const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!task) return; task[field]=value; });
   };
   const toggleMemberDone = (taskId:string, memberId:string) => {
-    updateDb((db:any)=>{ const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!task) return; task.memberDone[memberId]=!task.memberDone[memberId]; });
+    updateDb((db:any)=>{ const task=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(!task||!task.memberDone) return; task.memberDone[memberId]=!task.memberDone[memberId]; });
   };
 
   const addCampaign = () => {
@@ -761,7 +765,7 @@ export default function App() {
     const encoded="data:text/csv;charset=utf-8,"+encodeURIComponent(csvContent);
     const a=document.createElement("a"); a.href=encoded;
     a.download=`blurb_${exportTab}_${exportRange}_${todayKey()}.csv`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    try{ document.body.appendChild(a); a.click(); } finally { document.body.removeChild(a); }
     showToast("CSV exported");
   };
 
