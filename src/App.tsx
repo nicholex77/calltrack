@@ -23,6 +23,15 @@ const normalizeDate = (raw:string):string => {
 };
 const fmt = (dateStr:string) => { if(!dateStr) return "—"; const d=new Date(dateStr+"T00:00:00"); if(isNaN(d.getTime())) return dateStr; return d.toLocaleDateString("en-MY",{day:"numeric",month:"short",year:"numeric"}); };
 const dayName = (dateStr:string) => { const d=new Date(dateStr+"T00:00:00"); return d.toLocaleDateString("en-MY",{weekday:"long"}); };
+const staleness = (lastTouched:string) => {
+  if(!lastTouched) return null;
+  const d = Math.floor((Date.now()-new Date(lastTouched+"T00:00:00").getTime())/86400000);
+  if(d<=0) return {label:"Today",cls:"stale-fresh"};
+  if(d===1) return {label:"Yesterday",cls:"stale-fresh"};
+  if(d<=3) return {label:`${d}d ago`,cls:"stale-warn"};
+  return {label:`${d}d ago`,cls:"stale-old"};
+};
+const fmtNoteTime = (iso:string) => { try{ const d=new Date(iso); return d.toLocaleDateString("en-MY",{day:"numeric",month:"short"})+", "+d.toLocaleTimeString("en-MY",{hour:"2-digit",minute:"2-digit"}); }catch{return iso;} };
 
 const STORAGE_KEY = "calltrack_v5";
 // localStorage as fast local cache
@@ -164,6 +173,13 @@ textarea,input,select{font-family:inherit;}
 .pipeline-card{background:#fff;border:1.5px solid #ebebeb;border-radius:10px;padding:10px 12px;cursor:grab;transition:box-shadow .12s,opacity .15s;user-select:none;}
 .pipeline-card:hover{box-shadow:0 4px 12px rgba(0,0,0,.08);border-color:#bfdbfe;}
 .pipeline-card:active{cursor:grabbing;}
+.stale-fresh{color:#059669;background:#f0fdf4;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;}
+.stale-warn{color:#d97706;background:#fffbeb;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;}
+.stale-old{color:#dc2626;background:#fff1f2;font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;}
+.notes-feed{display:flex;flex-direction:column;gap:5px;max-height:160px;overflow-y:auto;margin-bottom:8px;}
+.note-item{background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:7px 10px;}
+.note-meta{font-size:10px;color:#aaa;display:flex;justify-content:space-between;margin-bottom:2px;}
+.note-text{font-size:12px;color:#333;line-height:1.5;word-break:break-word;}
 `
 
 function Counter({ value, onChange, size="normal" }: { value:number; onChange:(v:number)=>void; size?:string }) {
@@ -197,9 +213,11 @@ const CONTACT_LEAD_META:Record<string,{label:string,color:string,bg:string}> = {
 };
 
 // ── Memoised row — only re-renders when its own props change ─────────────────
-const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMode,isManager,members,onToggle,onSelect,onSalesAgent,onLeadStatus,onStatus,onDelete,onToast}:any){
+const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMode,isManager,members,onToggle,onSelect,onSalesAgent,onLeadStatus,onStatus,onCallbackDate,onAddNote,authorName,onDelete,onToast}:any){
   const sm=CONTACT_STATUS_META[c.status]||CONTACT_STATUS_META.contacted;
   const lm=c.leadStatus?CONTACT_LEAD_META[c.leadStatus]:null;
+  const st=staleness(c.lastTouched||"");
+  const [noteText,setNoteText]=React.useState("");
 
   const fieldRow=(label:string,value:string)=>!value?null:(
     <div style={{padding:"8px 0",borderBottom:"1px solid #f0f0f0"}}>
@@ -226,6 +244,7 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
           <div style={{fontSize:12,color:"#888",marginTop:1}}>{c.phone||"—"}{c.storeType?` · ${c.storeType}`:""}</div>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {st&&<span className={st.cls}>{st.label}</span>}
           {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20}}>{lm.label}</span>}
           <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
           {c.campaign&&<span style={{fontSize:10,fontWeight:600,color:"#7c3aed",background:"#f5f3ff",padding:"2px 7px",borderRadius:20,maxWidth:80,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.campaign}</span>}
@@ -270,6 +289,13 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
               </div>
             </div>
           </div>
+          {/* Callback date — only shown when status is callback */}
+          {c.status==="callback"&&(
+            <div style={{marginTop:12,paddingTop:12,borderTop:"1.5px solid #e8efff"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#d97706",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Callback Date</div>
+              <input type="date" value={c.callbackDate||""} onChange={e=>onCallbackDate(c.id,e.target.value)} style={{border:"1.5px solid #fde68a",borderRadius:9,padding:"7px 11px",fontSize:13,fontFamily:"inherit",color:"#111",background:"#fffbeb",outline:"none",width:"100%"}}/>
+            </div>
+          )}
           {isManager&&(
             <div style={{marginTop:12,paddingTop:12,borderTop:"1.5px solid #e8efff"}}>
               <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Sales Agent</div>
@@ -279,6 +305,24 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
               </select>
             </div>
           )}
+          {/* Notes feed */}
+          <div style={{marginTop:12,paddingTop:12,borderTop:"1.5px solid #e8efff"}}>
+            <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:8}}>Notes {(c.notes||[]).length>0&&<span style={{color:"#1a56db"}}>({(c.notes||[]).length})</span>}</div>
+            {(c.notes||[]).length>0&&(
+              <div className="notes-feed">
+                {(c.notes as any[]).map((n:any)=>(
+                  <div key={n.id} className="note-item">
+                    <div className="note-meta"><span>{n.author||"—"}</span><span>{fmtNoteTime(n.timestamp)}</span></div>
+                    <div className="note-text">{n.text}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{display:"flex",gap:6}}>
+              <input value={noteText} onChange={e=>setNoteText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&noteText.trim()){onAddNote(c.id,noteText,authorName);setNoteText("");}}} placeholder="Add a note…" style={{flex:1,border:"1.5px solid #e5e5e5",borderRadius:8,padding:"6px 10px",fontSize:12,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+              <button onClick={()=>{if(noteText.trim()){onAddNote(c.id,noteText,authorName);setNoteText("");}}} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid #1a56db",background:"#1a56db",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
+            </div>
+          </div>
           <div style={{display:"flex",gap:8,marginTop:12}}>
             <button onClick={()=>{const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n");navigator.clipboard.writeText(txt);onToast("All details copied");}} style={{flex:1,padding:"8px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
             {isManager&&<button onClick={()=>{if(window.confirm(`Delete ${c.name||"this contact"}?`)){onDelete(c.id);onToggle(null);}}} style={{padding:"8px 16px",borderRadius:9,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>}
@@ -298,6 +342,7 @@ const PIPELINE_COLS = [
 
 const PipelineCard = React.memo(function PipelineCard({c,isDragging,onDragStart,onClick}:any){
   const lm = c.leadStatus ? CONTACT_LEAD_META[c.leadStatus] : null;
+  const st = staleness(c.lastTouched||"");
   const sub = [c.storeType,c.salesAgent].filter(Boolean).join(" · ");
   return (
     <div
@@ -315,7 +360,10 @@ const PipelineCard = React.memo(function PipelineCard({c,isDragging,onDragStart,
         </div>
         {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20,flexShrink:0}}>{lm.label}</span>}
       </div>
-      {sub&&<div style={{fontSize:11,color:"#aaa",marginTop:5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{sub}</div>}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:5}}>
+        {sub?<span style={{fontSize:11,color:"#aaa",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{sub}</span>:<span/>}
+        {st&&<span className={st.cls} style={{flexShrink:0,marginLeft:4}}>{st.label}</span>}
+      </div>
     </div>
   );
 });
@@ -469,6 +517,7 @@ export default function App() {
   const [draggingContactId,      setDraggingContactId]     = useState<string|null>(null);
   const [dragOverColumn,         setDragOverColumn]        = useState<string|null>(null);
   const [pipelineDetailId,       setPipelineDetailId]      = useState<string|null>(null);
+  const [pipelineNoteText,       setPipelineNoteText]      = useState("");
   const [exporting, setExporting]                 = useState(false);
 
   const modalRef      = useRef<HTMLInputElement>(null);
@@ -694,12 +743,29 @@ export default function App() {
   },[]);
 
   const updateContactLeadStatusCb = useCallback((contactId:string, leadStatus:string|null) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.leadStatus=leadStatus; });
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c){ c.leadStatus=leadStatus; c.lastTouched=todayKey(); } });
   },[]);
 
   const updateContactStatus = useCallback((contactId:string, status:string) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.status=status; });
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c){ c.status=status; c.lastTouched=todayKey(); } });
   },[]);
+
+  const updateContactCallbackDate = useCallback((contactId:string, callbackDate:string) => {
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.callbackDate=callbackDate; });
+  },[]);
+
+  const addContactNote = useCallback((contactId:string, text:string, author:string) => {
+    if(!text.trim()) return;
+    updateDb((db:any)=>{ const c=(db.contacts||[]).find((x:any)=>x.id===contactId); if(!c) return; if(!c.notes) c.notes=[]; c.notes.unshift({id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}); });
+  },[]);
+
+  const bulkUpdateContactStatus = useCallback((status:string, ids:Set<string>) => {
+    const size=ids.size;
+    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(ids.has(c.id)){ c.status=status; c.lastTouched=todayKey(); } }); });
+    setContactSelectMode(false);
+    setSelectedContactIds(new Set());
+    showToast(`Updated ${size} contact${size!==1?"s":""} to ${CONTACT_STATUS_META[status as keyof typeof CONTACT_STATUS_META]?.label||status}.`);
+  },[showToast]);
 
   const handlePipelineDrop = useCallback((e:React.DragEvent,targetStatus:string)=>{
     e.preventDefault();
@@ -863,7 +929,9 @@ export default function App() {
         db.contacts = [...otherCampaign, ...Object.values(existingMap)];
       });
 
-      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}".`);
+      const existingPhones=new Set((db.contacts||[]).filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
+      const crossDups=imported.filter((c:any)=>c.phone&&existingPhones.has(stripPhone(c.phone))).length;
+      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}"${crossDups>0?` · ${crossDups} duplicate phone${crossDups!==1?"s":""} found in other campaigns`:""}.`);
       setImporting(false);
     };
     reader.onerror = () => { showToast("Failed to read file — try again."); setImporting(false); };
@@ -1366,7 +1434,7 @@ export default function App() {
 
   const hasUnsaved = dayTasks.some((t:any)=>!t.saved);
   const navItems = isManager
-    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["export","Export"],["members","Members"],["settings","Settings"]]
+    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["stats","Stats"],["export","Export"],["members","Members"],["settings","Settings"]]
     : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["mystats","My Stats"],["export","Export"],["members","Members"]];
 
   const perfSummary = buildPerformanceSummary();
@@ -1427,6 +1495,58 @@ export default function App() {
                   <button className="ghost-btn" style={{padding:"7px 11px",fontSize:13}} onClick={()=>setCurrentDate(addDays(currentDate,1))}>→</button>
                 </div>
               </div>
+              {/* Callbacks due today */}
+              {(()=>{
+                const due=allContacts.filter((c:any)=>c.callbackDate===currentDate);
+                if(!due.length) return null;
+                return (
+                  <div style={{marginBottom:14,background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:14,padding:"12px 16px"}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#92400e",marginBottom:8}}>📞 Callbacks Due Today ({due.length})</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                      {due.map((c:any)=>(
+                        <div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 10px",background:"#fff",borderRadius:9,border:"1px solid #fde68a"}}>
+                          <div style={{width:26,height:26,borderRadius:7,background:"#e8efff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#1a56db",flexShrink:0}}>{initials(c.name||"?")}</div>
+                          <div style={{flex:1,minWidth:0}}>
+                            <div style={{fontWeight:700,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name||"Unknown"}</div>
+                            <div style={{fontSize:11,color:"#888"}}>{c.phone||"—"}{c.salesAgent?` · ${c.salesAgent}`:""}</div>
+                          </div>
+                          <button onClick={()=>{setPage("contacts");setOpenContactId(c.id);}} style={{padding:"4px 10px",borderRadius:7,border:"1.5px solid #d97706",background:"#fff",color:"#d97706",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>View</button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* Today's team call progress */}
+              {isManager&&callTarget>0&&dayTasks.some((t:any)=>t.type==="telesales")&&(()=>{
+                const entries:Record<string,{name:string,total:number,interested:number}>={};
+                dayTasks.filter((t:any)=>t.type==="telesales").forEach((t:any)=>{
+                  (t.assignedMembers||[]).forEach((m:any)=>{
+                    if(!entries[m.id]) entries[m.id]={name:m.name,total:0,interested:0};
+                    const s=t.memberStats?.[m.id]||{};
+                    entries[m.id].total+=(s.total||0);
+                    entries[m.id].interested+=(s.interested||0);
+                  });
+                });
+                const rows=Object.values(entries);
+                if(!rows.length) return null;
+                return (
+                  <div style={{marginBottom:14,background:"#f0f6ff",border:"1.5px solid #bfdbfe",borderRadius:14,padding:"12px 16px"}}>
+                    <div style={{fontWeight:700,fontSize:13,color:"#1a56db",marginBottom:10}}>📊 Today's Call Progress</div>
+                    <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                      {rows.map(({name,total,interested})=>(
+                        <div key={name}>
+                          <div style={{display:"flex",justifyContent:"space-between",fontSize:12,fontWeight:600,marginBottom:3}}>
+                            <span>{name}</span>
+                            <span style={{color:total>=callTarget?"#059669":"#888"}}>{total}/{callTarget} calls{intTarget>0?` · ${interested}/${intTarget} int.`:""}</span>
+                          </div>
+                          <div className="progress-track"><div className="progress-fill" style={{width:`${Math.min(100,callTarget>0?total/callTarget*100:0)}%`,background:total>=callTarget?"#059669":"#1a56db"}}/></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
               <div className="daily-grid" style={{display:"grid",gridTemplateColumns:`${sidebarOpen?"240px":"40px"} 1fr`,gap:16,alignItems:"start",transition:"grid-template-columns .2s ease"}}>
                 {/* Sidebar */}
                 <div className="sidebar-panel open">
@@ -1559,7 +1679,10 @@ export default function App() {
                   </div>
                   <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
                     {isManager&&contactSelectMode&&selectedContactIds.size>0&&(
-                      <button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete ({selectedContactIds.size})</button>
+                      <>
+                        <button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete ({selectedContactIds.size})</button>
+                        {(["contacted","callback","interested"] as const).map(st=>{const stm=CONTACT_STATUS_META[st];return <button key={st} onClick={()=>bulkUpdateContactStatus(st,selectedContactIds)} style={{padding:"8px 12px",borderRadius:10,border:`1.5px solid ${stm.color}`,background:stm.bg,color:stm.color,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{stm.label}</button>;})}
+                      </>
                     )}
                     {isManager&&contacts.length>0&&!contactSelectMode&&(
                       <button onClick={()=>{ if(window.confirm(`Delete all ${contacts.length} contacts?`)) deleteAllContacts(); }} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete All</button>
@@ -1685,6 +1808,9 @@ export default function App() {
                       onSalesAgent={updateContactSalesAgent}
                       onLeadStatus={updateContactLeadStatusCb}
                       onStatus={updateContactStatus}
+                      onCallbackDate={updateContactCallbackDate}
+                      onAddNote={addContactNote}
+                      authorName={isManager?"Manager":(members.find((m:any)=>m.id===loggedInMemberId)?.name||"Member")}
                       onDelete={deleteContactCb}
                       onToast={showToast}
                     />
@@ -1782,7 +1908,7 @@ export default function App() {
                 </div>
                 {/* Detail modal */}
                 {pipelineDetail&&(
-                  <div className="modal-overlay" onClick={()=>setPipelineDetailId(null)}>
+                  <div className="modal-overlay" onClick={()=>{setPipelineDetailId(null);setPipelineNoteText("");}}>
                     <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:500}}>
                       {(()=>{
                         const c=pipelineDetail;
@@ -1804,7 +1930,7 @@ export default function App() {
                                 <div style={{fontWeight:800,fontSize:16,letterSpacing:-.3}}>{c.name||"Unknown"}</div>
                                 <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
                               </div>
-                              <button onClick={()=>setPipelineDetailId(null)} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#aaa",padding:"2px 6px"}}>✕</button>
+                              <button onClick={()=>{setPipelineDetailId(null);setPipelineNoteText("");}} style={{background:"none",border:"none",fontSize:18,cursor:"pointer",color:"#aaa",padding:"2px 6px"}}>✕</button>
                             </div>
                             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px",marginBottom:14}}>
                               {fieldRow("Phone",c.phone||"")}
@@ -1832,6 +1958,13 @@ export default function App() {
                                 {(["hot","warm","cold"] as const).map(ls=>{const llm=CONTACT_LEAD_META[ls];const active=c.leadStatus===ls;return <button key={ls} onClick={()=>updateContactLeadStatusCb(c.id,active?null:ls)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;})}
                               </div>
                             </div>
+                            {/* Callback date */}
+                            {c.status==="callback"&&(
+                              <div style={{marginBottom:12}}>
+                                <div style={{fontSize:10,fontWeight:700,color:"#d97706",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Callback Date</div>
+                                <input type="date" value={c.callbackDate||""} onChange={e=>updateContactCallbackDate(c.id,e.target.value)} style={{border:"1.5px solid #fde68a",borderRadius:9,padding:"7px 11px",fontSize:13,fontFamily:"inherit",color:"#111",background:"#fffbeb",outline:"none",width:"100%"}}/>
+                              </div>
+                            )}
                             {/* Sales agent — manager only */}
                             {isManager&&(
                               <div style={{marginBottom:14}}>
@@ -1842,11 +1975,108 @@ export default function App() {
                                 </select>
                               </div>
                             )}
+                            {/* Notes feed */}
+                            <div style={{marginBottom:14}}>
+                              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:8}}>Notes {(c.notes||[]).length>0&&<span style={{color:"#1a56db"}}>({(c.notes||[]).length})</span>}</div>
+                              {(c.notes||[]).length>0&&(
+                                <div className="notes-feed" style={{marginBottom:8}}>
+                                  {(c.notes as any[]).map((n:any)=>(
+                                    <div key={n.id} className="note-item">
+                                      <div className="note-meta"><span>{n.author||"—"}</span><span>{fmtNoteTime(n.timestamp)}</span></div>
+                                      <div className="note-text">{n.text}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              <div style={{display:"flex",gap:6}}>
+                                <input value={pipelineNoteText} onChange={e=>setPipelineNoteText(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&pipelineNoteText.trim()){addContactNote(c.id,pipelineNoteText,isManager?"Manager":(members.find((m:any)=>m.id===loggedInMemberId)?.name||"Member"));setPipelineNoteText("");}}} placeholder="Add a note…" style={{flex:1,border:"1.5px solid #e5e5e5",borderRadius:8,padding:"6px 10px",fontSize:12,fontFamily:"inherit",outline:"none"}}/>
+                                <button onClick={()=>{if(pipelineNoteText.trim()){addContactNote(c.id,pipelineNoteText,isManager?"Manager":(members.find((m:any)=>m.id===loggedInMemberId)?.name||"Member"));setPipelineNoteText("");}}} style={{padding:"6px 12px",borderRadius:8,border:"1.5px solid #1a56db",background:"#1a56db",color:"#fff",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Add</button>
+                              </div>
+                            </div>
                             <button onClick={()=>{const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Status: ${sm.label}`,`Lead: ${c.leadStatus||"unclassified"}`,`Agent: ${c.salesAgent||""}`,`Remarks: ${c.remarks||""}`].filter(l=>!l.endsWith(": ")).join("\n");navigator.clipboard.writeText(txt);showToast("Copied");}} style={{width:"100%",padding:"9px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
                           </>
                         );
                       })()}
                     </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/*  STATS (manager only)  */}
+          {page==="stats"&&isManager&&(()=>{
+            const agentNames=Array.from(new Set(allContacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort();
+            const unassignedCount=allContacts.filter((c:any)=>!c.salesAgent).length;
+            const today=todayKey();
+            const agentRows=agentNames.map(name=>{
+              const cs=allContacts.filter((c:any)=>c.salesAgent===name);
+              const total=cs.length;
+              const contacted=cs.filter((c:any)=>c.status==="contacted").length;
+              const callback=cs.filter((c:any)=>c.status==="callback").length;
+              const interested=cs.filter((c:any)=>c.status==="interested").length;
+              const hot=cs.filter((c:any)=>c.leadStatus==="hot").length;
+              const stale=cs.filter((c:any)=>{if(!c.lastTouched)return true;const d=Math.floor((Date.now()-new Date(c.lastTouched+"T00:00:00").getTime())/86400000);return d>7;}).length;
+              const callbackDueToday=cs.filter((c:any)=>c.callbackDate===today).length;
+              return {name,total,contacted,callback,interested,hot,stale,callbackDueToday};
+            });
+            const pct=(n:number,t:number)=>t>0?Math.round(n/t*100):0;
+            return (
+              <div className="fade-up">
+                <div style={{marginBottom:20}}>
+                  <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Agent Stats</div>
+                  <div style={{fontSize:13,color:"#888",marginTop:2}}>{agentNames.length} agents · {allContacts.length} total contacts{unassignedCount>0?` · ${unassignedCount} unassigned`:""}</div>
+                </div>
+                {agentRows.length===0?(
+                  <div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts assigned to agents yet.</div>
+                ):(
+                  <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                    {agentRows.map(r=>(
+                      <div key={r.name} style={{background:"#fff",border:"1.5px solid #ebebeb",borderRadius:14,padding:"16px 20px"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12,flexWrap:"wrap",gap:8}}>
+                          <div style={{display:"flex",alignItems:"center",gap:10}}>
+                            <div style={{width:36,height:36,borderRadius:10,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff"}}>{initials(r.name)}</div>
+                            <div>
+                              <div style={{fontWeight:700,fontSize:15}}>{r.name}</div>
+                              <div style={{fontSize:12,color:"#888"}}>{r.total} contact{r.total!==1?"s":""}</div>
+                            </div>
+                          </div>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                            {r.hot>0&&<span style={{fontSize:11,fontWeight:700,color:"#dc2626",background:"#fff1f2",padding:"2px 8px",borderRadius:20}}>{r.hot} hot</span>}
+                            {r.callbackDueToday>0&&<span style={{fontSize:11,fontWeight:700,color:"#d97706",background:"#fffbeb",padding:"2px 8px",borderRadius:20}}>{r.callbackDueToday} callback today</span>}
+                            {r.stale>0&&<span style={{fontSize:11,fontWeight:700,color:"#6b7280",background:"#f3f4f6",padding:"2px 8px",borderRadius:20}}>{r.stale} stale (&gt;7d)</span>}
+                          </div>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
+                          {[
+                            {label:"Contacted",val:r.contacted,color:"#2563eb",bg:"#eff6ff"},
+                            {label:"Callback",val:r.callback,color:"#d97706",bg:"#fffbeb"},
+                            {label:"Interested",val:r.interested,color:"#059669",bg:"#f0fdf4"},
+                          ].map(({label,val,color,bg})=>(
+                            <div key={label} style={{background:bg,borderRadius:10,padding:"10px 12px"}}>
+                              <div style={{fontSize:10,fontWeight:700,color,textTransform:"uppercase" as const,letterSpacing:.4,marginBottom:4}}>{label}</div>
+                              <div style={{fontSize:20,fontWeight:800,color:"#111"}}>{val}</div>
+                              <div style={{fontSize:11,color:"#888"}}>{pct(val,r.total)}%</div>
+                            </div>
+                          ))}
+                        </div>
+                        {r.total>0&&(
+                          <div style={{marginTop:10}}>
+                            <div style={{fontSize:11,color:"#888",marginBottom:4}}>Pipeline progress</div>
+                            <div style={{display:"flex",height:8,borderRadius:99,overflow:"hidden",gap:1}}>
+                              <div style={{flex:r.contacted,background:"#93c5fd",minWidth:r.contacted?2:0}}/>
+                              <div style={{flex:r.callback,background:"#fcd34d",minWidth:r.callback?2:0}}/>
+                              <div style={{flex:r.interested,background:"#6ee7b7",minWidth:r.interested?2:0}}/>
+                            </div>
+                            <div style={{display:"flex",gap:12,marginTop:4,fontSize:10,color:"#aaa"}}>
+                              <span style={{color:"#2563eb"}}>■ Contacted</span>
+                              <span style={{color:"#d97706"}}>■ Callback</span>
+                              <span style={{color:"#059669"}}>■ Interested</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
