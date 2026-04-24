@@ -30,7 +30,7 @@ const loadLocal  = () => { try { return JSON.parse(localStorage.getItem(STORAGE_
 const saveLocal  = (data:any) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} };
 // Supabase read/write — single row with id='main'
 const loadRemote = async () => { const { data } = await supabase.from("calltrack").select("data").eq("id","main").single(); return data?.data||{}; };
-const saveRemote = (data:any) => supabase.from("calltrack").upsert({id:"main",data,updated_at:new Date().toISOString()}).then(({error})=>{ if(error) console.error("Supabase write error:",error); });
+const saveRemote = async (data:any): Promise<void> => { const {error} = await supabase.from("calltrack").upsert({id:"main",data,updated_at:new Date().toISOString()}); if(error) throw error; };
 
 const TASK_TYPES = {
   telesales: { label:"Telesales Call", color:"#2563eb", bg:"#eff6ff" },
@@ -40,7 +40,6 @@ const TASK_TYPES = {
 
 const BRAND="#1a56db";
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&display=swap');
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Geist',system-ui,sans-serif;background:#fff;color:#111;}
 ::-webkit-scrollbar{width:3px;height:3px;}
@@ -321,6 +320,7 @@ export default function App() {
   const writerIdRef   = useRef(uid());
   const saveTimerRef  = useRef<ReturnType<typeof setTimeout>|null>(null);
   const pendingSaveRef= useRef<any>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
 
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
@@ -353,7 +353,7 @@ export default function App() {
   useEffect(()=>{ if(!modal) return; const t=setTimeout(()=>modalRef.current?.focus(),60); return ()=>clearTimeout(t); },[modal]);
   useEffect(()=>{ setSelectedTaskId(null); },[currentDate]);
 
-  const showToast = (msg:string) => { setToast(msg); setTimeout(()=>setToast(null),2200); };
+  const showToast = (msg:string) => { if(toastTimerRef.current) clearTimeout(toastTimerRef.current); setToast(msg); toastTimerRef.current=setTimeout(()=>setToast(null),2200); };
 
   // updateDb — writes locally immediately, debounces Supabase writes to 1.2s
   const updateDb = useCallback((fn:(db:any)=>void) => setDb((prev:any)=>{
@@ -362,7 +362,7 @@ export default function App() {
     saveLocal(next);
     pendingSaveRef.current = {...next, __writerId: writerIdRef.current};
     if(saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) saveRemote(pendingSaveRef.current); }, 1200);
+    saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) saveRemote(pendingSaveRef.current).catch(()=>showToast("⚠️ Sync failed — changes saved locally.")); }, 1200);
     return next;
   }), []);
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
