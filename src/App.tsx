@@ -373,6 +373,24 @@ export default function App() {
   const callTarget = parseInt(String(settings.callTarget||0))||0;
   const intTarget  = parseInt(String(settings.intTarget||0))||0;
 
+  // ── Contact filters — must live at top level (Rules of Hooks) ────────────
+  const allContacts:any[] = db.contacts||[];
+  const contactCampaigns  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[],[allContacts]);
+  const contactAgentOpts  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[],[allContacts]);
+  const toggleContactFilter = useCallback((dim:string, val:string) => setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }),[]);
+  const clearContactFilters = useCallback(() => setContactFilters({status:[],lead:[],campaign:[],agent:[]}),[]);
+  const filteredContacts  = useMemo(()=>{
+    const cf=contactFilters; const q=contactSearch.trim().toLowerCase();
+    return allContacts.filter((c:any)=>{
+      if(cf.status?.length   && !cf.status.includes(c.status)) return false;
+      if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
+      if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
+      if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
+      if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((a:any,b:any)=>({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0));
+  },[allContacts,contactFilters,contactSearch]);
+
   const handleUnlock = (r:string, memberId:string|null) => { setRole(r); setLoggedInMemberId(memberId||null); setPage("daily"); };
   const handleLock   = () => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); };
 
@@ -1271,8 +1289,9 @@ export default function App() {
 
           {/*  CONTACTS  */}
           {page==="contacts"&&isManager&&(()=>{
-            const contacts:any[] = db.contacts||[];
-            const statusPriority:any = {interested:3,callback:2,contacted:1};
+            const contacts  = allContacts;
+            const filtered  = filteredContacts;
+            const anyActive = Object.values(contactFilters).some((a:any)=>a.length>0)||contactSearch.trim().length>0;
             const statusMeta:any = {
               interested:{label:"Interested",color:"#059669",bg:"#f0fdf4"},
               callback:  {label:"Callback",  color:"#d97706",bg:"#fffbeb"},
@@ -1283,26 +1302,11 @@ export default function App() {
               warm:{label:"Warm", color:"#d97706",bg:"#fffbeb"},
               cold:{label:"Cold", color:"#2563eb",bg:"#eff6ff"},
             };
-            const campaigns    = useMemo(()=>Array.from(new Set(contacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[],[contacts]);
-            const agentOptions = useMemo(()=>Array.from(new Set(contacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[],[contacts]);
-            const cf = contactFilters;
-            const q  = contactSearch.trim().toLowerCase();
-            const toggleFilter = useCallback((dim:string, val:string) => setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }),[]);
-            const clearFilters = useCallback(() => setContactFilters({status:[],lead:[],campaign:[],agent:[]}),[]);
-            const anyActive = Object.values(cf).some((a:any)=>a.length>0)||q.length>0;
-            const filtered = useMemo(()=>contacts.filter((c:any)=>{
-              if(cf.status?.length  && !cf.status.includes(c.status)) return false;
-              if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
-              if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
-              if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
-              if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
-              return true;
-            }).sort((a:any,b:any)=>(statusPriority[b.status]||0)-(statusPriority[a.status]||0)),[contacts,cf,q]);
             const filterDefs = [
               {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"}]},
               {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
-              {key:"campaign",label:"Campaign", options:campaigns.map(cp=>({val:cp,label:cp}))},
-              {key:"agent",   label:"Agent",    options:[...agentOptions.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]},
+              {key:"campaign",label:"Campaign", options:contactCampaigns.map(cp=>({val:cp,label:cp}))},
+              {key:"agent",   label:"Agent",    options:[...contactAgentOpts.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]},
             ];
             return (
               <div className="fade-up">
@@ -1376,7 +1380,7 @@ export default function App() {
                 <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
                   <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="🔍 Search name, phone, store…" style={{flex:1,minWidth:160,border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 12px",fontSize:13,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
                   {filterDefs.map(fd=>{
-                    const active=cf[fd.key]||[];
+                    const active=contactFilters[fd.key]||[];
                     const isOpen=activeFilterDropdown===fd.key;
                     if(!fd.options.length) return null;
                     return (
@@ -1407,7 +1411,7 @@ export default function App() {
                                       if(fd.key==="agent") return (c.salesAgent||"__none__")===opt.val;
                                       return false;
                                     }).length}</span>
-                                    <input type="checkbox" checked={checked} onChange={()=>toggleFilter(fd.key,opt.val)} style={{display:"none"}}/>
+                                    <input type="checkbox" checked={checked} onChange={()=>toggleContactFilter(fd.key,opt.val)} style={{display:"none"}}/>
                                   </label>
                                 );
                               })}
@@ -1417,7 +1421,7 @@ export default function App() {
                       </div>
                     );
                   })}
-                  {anyActive&&<button onClick={clearFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
+                  {anyActive&&<button onClick={clearContactFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
                 </div>
                 {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
                 {/* List rows — accordion */}
