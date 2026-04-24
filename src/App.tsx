@@ -47,7 +47,7 @@ body{font-family:'Geist',system-ui,sans-serif;background:#fff;color:#111;}
 ::-webkit-scrollbar-thumb{background:#ddd;border-radius:4px;}
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
 textarea,input,select{font-family:inherit;}
-@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes pop{0%{transform:scale(.95);opacity:0}100%{transform:scale(1);opacity:1}}
 @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-6px)}40%,80%{transform:translateX(6px)}}
@@ -525,16 +525,18 @@ export default function App() {
       const headers = parseRow(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9_]/g,"_"));
       const col = (...names: string[]) => { for (const n of names) { const i=headers.indexOf(n); if(i>=0) return i; } return -1; };
 
-      const iName    = col("customer_name","client_name","name","contact_name");
-      const iPhone   = col("primary_phone","phone_number","phone","mobile");
-      const iCompany = col("agency","agency_name","company_name","company");
-      const iStoreId = col("store_id","storeid","store_no","store_number","store");
-      const iRenId   = col("ren_id","renid","ren_no","ren");
-      const iState   = col("most_frequent_state","remarks","remark","notes","state");
-      const iStatus  = col("call_status","status");
-      const iInterest= col("interest","interested");
-      const iAgent   = col("agent","agent_name");
-      const iDate    = col("date");
+      const iName      = col("customer_name","client_name","name","contact_name");
+      const iPhone     = col("primary_phone","phone_number","phone");
+      const iPhone2    = col("mobile_phone","mobile","phone_2","phone2","alternate_phone","alt_phone","handphone","hp");
+      const iStoreType = col("store_type","type");
+      const iCompany   = col("agency","agency_name","company_name","company");
+      const iStoreId   = col("store_id","storeid","store_no","store_number","store");
+      const iRenId     = col("ren_id","renid","ren_no","ren");
+      const iState     = col("most_frequent_state","remarks","remark","notes","state");
+      const iStatus    = col("call_status","status");
+      const iInterest  = col("interest","interested");
+      const iAgent     = col("telesales","telesales_member","member","assigned_member","assigned","assigned_to","agent","agent_name");
+      const iDate      = col("date");
 
       const PRIORITY: any = { interested:3, callback:2, contacted:1 };
       const stripPhone = (p:string) => p.replace(/[\s\-()+.]/g,"").toLowerCase();
@@ -552,21 +554,23 @@ export default function App() {
         else if (/callback|call back|\bcb\b/.test(statusRaw)) bucket="callback";
         if (!bucket) continue;
 
-        const name    = iName    >= 0 ? row[iName].trim()    : "";
-        const phone   = iPhone   >= 0 ? row[iPhone].trim()   : "";
-        const company = iCompany >= 0 ? row[iCompany].trim() : "";
-        const storeId = iStoreId >= 0 ? row[iStoreId].trim() : "";
-        const renId   = iRenId   >= 0 ? row[iRenId].trim()   : "";
-        const remarks = iState   >= 0 ? row[iState].trim()   : "";
-        const agent   = iAgent   >= 0 ? row[iAgent].trim()   : "";
-        const date    = normalizeDate(iDate >= 0 ? row[iDate].trim() : "");
-        const key     = (phone ? stripPhone(phone) : name.toLowerCase().trim());
+        const name      = iName      >= 0 ? row[iName].trim()      : "";
+        const phone     = iPhone     >= 0 ? row[iPhone].trim()     : "";
+        const phone2    = iPhone2    >= 0 ? row[iPhone2].trim()    : "";
+        const storeType = iStoreType >= 0 ? row[iStoreType].trim() : "";
+        const company   = iCompany   >= 0 ? row[iCompany].trim()   : "";
+        const storeId   = iStoreId   >= 0 ? row[iStoreId].trim()   : "";
+        const renId     = iRenId     >= 0 ? row[iRenId].trim()     : "";
+        const remarks   = iState     >= 0 ? row[iState].trim()     : "";
+        const agent     = iAgent     >= 0 ? row[iAgent].trim()     : "";
+        const date      = normalizeDate(iDate >= 0 ? row[iDate].trim() : "");
+        const key       = (phone ? stripPhone(phone) : name.toLowerCase().trim());
         if (!key) continue;
 
         const existing = seen[key];
         const inP = PRIORITY[bucket]||0;
         if (!existing || inP > (PRIORITY[existing.status]||0)) {
-          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, company, storeId, renId, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
+          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, phone2, storeType, company, storeId, renId, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
         }
       }
 
@@ -1287,7 +1291,7 @@ export default function App() {
               if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
               if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
               if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
-              if(q && !`${c.name} ${c.phone} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
+              if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
               return true;
             }).sort((a:any,b:any)=>(statusPriority[b.status]||0)-(statusPriority[a.status]||0)),[contacts,cf,q]);
             const filterDefs = [
@@ -1427,7 +1431,7 @@ export default function App() {
                         <div style={{width:36,height:36,borderRadius:10,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(c.name||"?")}</div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontWeight:700,fontSize:14,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{c.name||"Unknown"}</div>
-                          <div style={{fontSize:12,color:"#888",marginTop:1}}>{c.phone||"—"}{c.company?` · ${c.company}`:""}</div>
+                          <div style={{fontSize:12,color:"#888",marginTop:1}}>{c.phone||"—"}{c.storeType?` · ${c.storeType}`:""}</div>
                         </div>
                         <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0,flexWrap:"wrap",justifyContent:"flex-end"}}>
                           {lm&&<span style={{fontSize:10,fontWeight:700,color:lm.color,background:lm.bg,padding:"2px 7px",borderRadius:20}}>{lm.label}</span>}
@@ -1475,12 +1479,14 @@ export default function App() {
                         </div>
                         {/* Fields */}
                         <div style={{padding:"4px 24px 24px",flex:1}}>
-                          <Field label="Name"            value={c.name||""}/>
-                          <Field label="Phone"           value={c.phone||""}/>
-                          <Field label="Store ID"           value={c.storeId||""}/>
-                          <Field label="REN ID"             value={c.renId||""}/>
-                          <Field label="Company / Agency"   value={c.company||""}/>
-                          <Field label="Remarks / State" value={c.remarks||""}/>
+                          <Field label="Name"                value={c.name||""}/>
+                          <Field label="Phone"               value={c.phone||""}/>
+                          <Field label="Mobile / Alt. Phone" value={c.phone2||""}/>
+                          <Field label="Store ID"            value={c.storeId||""}/>
+                          <Field label="REN ID"              value={c.renId||""}/>
+                          <Field label="Store Type"          value={c.storeType||""}/>
+                          <Field label="Company / Agency"    value={c.company||""}/>
+                          <Field label="Remarks / State"     value={c.remarks||""}/>
                           <Field label="Agent (from sheet)" value={c.agentName||""}/>
                           <Field label="Date"            value={c.date?fmt(c.date):""}/>
                           <Field label="Campaign"        value={c.campaign||""}/>
@@ -1506,7 +1512,7 @@ export default function App() {
                             </div>
                           </div>
                           {/* Copy all */}
-                          <button onClick={()=>{ const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n"); navigator.clipboard.writeText(txt); showToast("All details copied"); }} style={{marginTop:18,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All Details</button>
+                          <button onClick={()=>{ const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n"); navigator.clipboard.writeText(txt); showToast("All details copied"); }} style={{marginTop:18,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All Details</button>
                           <button onClick={()=>{ if(window.confirm(`Delete ${c.name||"this contact"}?`)){ deleteContact(c.id); setOpenContactId(null); } }} style={{marginTop:10,width:"100%",padding:"10px 0",borderRadius:10,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete Contact</button>
                         </div>
                       </div>
