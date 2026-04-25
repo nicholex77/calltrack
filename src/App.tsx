@@ -708,38 +708,6 @@ export default function App() {
   const handleUnlock = (r:string, memberId:string|null) => { setRole(r); setLoggedInMemberId(memberId||null); setPage("daily"); };
   const handleLock   = useCallback(() => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); },[]);
 
-  // ── Idle auto-lock (15 min) + tab-hidden lock (5 min) ─────────────────────
-  const roleRef          = useRef<string|null>(null);
-  const lastActivityRef  = useRef(Date.now());
-  const hiddenAtRef      = useRef<number|null>(null);
-  useEffect(()=>{ roleRef.current=role; },[role]);
-
-  useEffect(()=>{
-    const touch = ()=>{ lastActivityRef.current=Date.now(); };
-    window.addEventListener("mousemove",touch,{passive:true});
-    window.addEventListener("keydown",touch,{passive:true});
-    window.addEventListener("click",touch,{passive:true});
-    window.addEventListener("touchstart",touch,{passive:true});
-
-    const idleCheck = setInterval(()=>{
-      if(roleRef.current && Date.now()-lastActivityRef.current > 15*60*1000) handleLock();
-    }, 30_000);
-
-    const onVisibility = ()=>{
-      if(document.hidden){ hiddenAtRef.current=Date.now(); }
-      else { if(hiddenAtRef.current && Date.now()-hiddenAtRef.current > 5*60*1000 && roleRef.current) handleLock(); hiddenAtRef.current=null; }
-    };
-    document.addEventListener("visibilitychange",onVisibility);
-
-    return ()=>{
-      window.removeEventListener("mousemove",touch);
-      window.removeEventListener("keydown",touch);
-      window.removeEventListener("click",touch);
-      window.removeEventListener("touchstart",touch);
-      clearInterval(idleCheck);
-      document.removeEventListener("visibilitychange",onVisibility);
-    };
-  },[handleLock]);
 
   const addMember = () => {
     if(!memberInput.trim()) return;
