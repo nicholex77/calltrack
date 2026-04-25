@@ -180,6 +180,13 @@ textarea,input,select{font-family:inherit;}
 .note-item{background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:7px 10px;}
 .note-meta{font-size:10px;color:#aaa;display:flex;justify-content:space-between;margin-bottom:2px;}
 .note-text{font-size:12px;color:#333;line-height:1.5;word-break:break-word;}
+.history-feed{display:flex;flex-direction:column;gap:3px;max-height:120px;overflow-y:auto;}
+.history-item{border-left:2px solid #e5e5e5;padding:3px 0 3px 9px;}
+.history-meta{font-size:10px;color:#aaa;margin-bottom:1px;}
+.history-text{font-size:11px;color:#555;font-weight:600;}
+.stats-tab-bar{display:flex;gap:4px;background:#f5f5f5;border-radius:10px;padding:3px;margin-bottom:20px;width:fit-content;}
+.stats-tab{padding:6px 16px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;background:transparent;color:#888;transition:all .12s;}
+.stats-tab.active{background:#fff;color:#111;box-shadow:0 1px 4px rgba(0,0,0,.08);}
 `
 
 function Counter({ value, onChange, size="normal" }: { value:number; onChange:(v:number)=>void; size?:string }) {
@@ -274,7 +281,7 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
                 {(["contacted","callback","interested"] as const).map(st=>{
                   const stm=CONTACT_STATUS_META[st];
                   const active=c.status===st;
-                  return <button key={st} onClick={()=>onStatus(c.id,st)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;
+                  return <button key={st} onClick={()=>onStatus(c.id,st,authorName)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;
                 })}
               </div>
             </div>
@@ -284,7 +291,7 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
                 {(["hot","warm","cold"] as const).map(ls=>{
                   const llm=CONTACT_LEAD_META[ls];
                   const active=c.leadStatus===ls;
-                  return <button key={ls} onClick={()=>onLeadStatus(c.id,active?null:ls)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;
+                  return <button key={ls} onClick={()=>onLeadStatus(c.id,active?null:ls,authorName)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;
                 })}
               </div>
             </div>
@@ -303,6 +310,24 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
                 <option value="">Unassigned</option>
                 {(members||[]).map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
               </select>
+            </div>
+          )}
+          {/* Activity history */}
+          {(c.history||[]).length>0&&(
+            <div style={{marginTop:12,paddingTop:12,borderTop:"1.5px solid #e8efff"}}>
+              <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:8}}>Activity <span style={{color:"#1a56db"}}>({(c.history||[]).length})</span></div>
+              <div className="history-feed">
+                {(c.history as any[]).slice(0,10).map((h:any)=>{
+                  const fromLabel=h.type==="status"?(CONTACT_STATUS_META[h.from]?.label||h.from):(CONTACT_LEAD_META[h.from]?.label||h.from);
+                  const toLabel=h.type==="status"?(CONTACT_STATUS_META[h.to]?.label||h.to):(CONTACT_LEAD_META[h.to]?.label||h.to);
+                  return (
+                    <div key={h.id} className="history-item">
+                      <div className="history-meta">{h.by||"—"} · {fmtNoteTime(h.timestamp)}</div>
+                      <div className="history-text">{h.type==="status"?"Status":"Lead"}: {fromLabel} → {toLabel}</div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
           {/* Notes feed */}
@@ -497,6 +522,7 @@ export default function App() {
   const [contactSelectMode, setContactSelectMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [contactSort, setContactSort]             = useState("status");
+  const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns">("agents");
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
   const [showAssignModal, setShowAssignModal]     = useState(false);
@@ -761,12 +787,24 @@ export default function App() {
     updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.salesAgent=salesAgent; });
   },[]);
 
-  const updateContactLeadStatusCb = useCallback((contactId:string, leadStatus:string|null) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c){ c.leadStatus=leadStatus; c.lastTouched=todayKey(); } });
+  const updateContactLeadStatusCb = useCallback((contactId:string, leadStatus:string|null, author?:string) => {
+    updateDb((db:any)=>{
+      const c=(db.contacts||[]).find((c:any)=>c.id===contactId);
+      if(c){
+        if(c.leadStatus!==leadStatus){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"lead",from:c.leadStatus||"none",to:leadStatus||"none",by:author||"",timestamp:new Date().toISOString()}); }
+        c.leadStatus=leadStatus; c.lastTouched=todayKey();
+      }
+    });
   },[]);
 
-  const updateContactStatus = useCallback((contactId:string, status:string) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c){ c.status=status; c.lastTouched=todayKey(); } });
+  const updateContactStatus = useCallback((contactId:string, status:string, author?:string) => {
+    updateDb((db:any)=>{
+      const c=(db.contacts||[]).find((c:any)=>c.id===contactId);
+      if(c){
+        if(c.status!==status){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:new Date().toISOString()}); }
+        c.status=status; c.lastTouched=todayKey();
+      }
+    });
   },[]);
 
   const updateContactCallbackDate = useCallback((contactId:string, callbackDate:string) => {
@@ -780,7 +818,7 @@ export default function App() {
 
   const bulkUpdateContactStatus = useCallback((status:string, ids:Set<string>) => {
     const size=ids.size;
-    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(ids.has(c.id)){ c.status=status; c.lastTouched=todayKey(); } }); });
+    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(ids.has(c.id)){ if(c.status!==status){if(!c.history)c.history=[];c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:"Bulk",timestamp:new Date().toISOString()});} c.status=status; c.lastTouched=todayKey(); } }); });
     setContactSelectMode(false);
     setSelectedContactIds(new Set());
     showToast(`Updated ${size} contact${size!==1?"s":""} to ${CONTACT_STATUS_META[status as keyof typeof CONTACT_STATUS_META]?.label||status}.`);
@@ -815,6 +853,13 @@ export default function App() {
 
   const handleContactToggle = useCallback((id:string|null)=>setOpenContactId(prev=>prev===id?null:id),[]);
   const handleContactSelect = useCallback((id:string)=>setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }),[]);
+
+  const handleReassignStale = useCallback((agentName:string) => {
+    setContactFilters({status:[],lead:[],campaign:[],agent:[agentName]});
+    setContactSort("stale");
+    setContactSelectMode(true);
+    setPage("contacts");
+  },[]);
 
   const assignContactsRandomly = () => {
     const pool = [...(db.contacts||[])].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
@@ -2017,14 +2062,14 @@ export default function App() {
                             <div style={{marginBottom:12}}>
                               <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Call Status</div>
                               <div style={{display:"flex",gap:6}}>
-                                {(["contacted","callback","interested"] as const).map(st=>{const stm=CONTACT_STATUS_META[st];const active=c.status===st;return <button key={st} onClick={()=>updateContactStatus(c.id,st)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;})}
+                                {(["contacted","callback","interested"] as const).map(st=>{const stm=CONTACT_STATUS_META[st];const active=c.status===st;const pipelineAuthor=isManager?"Manager":(members.find((m:any)=>m.id===loggedInMemberId)?.name||"Member");return <button key={st} onClick={()=>updateContactStatus(c.id,st,pipelineAuthor)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;})}
                               </div>
                             </div>
                             {/* Lead status */}
                             <div style={{marginBottom:12}}>
                               <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Lead Status</div>
                               <div style={{display:"flex",gap:6}}>
-                                {(["hot","warm","cold"] as const).map(ls=>{const llm=CONTACT_LEAD_META[ls];const active=c.leadStatus===ls;return <button key={ls} onClick={()=>updateContactLeadStatusCb(c.id,active?null:ls)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;})}
+                                {(["hot","warm","cold"] as const).map(ls=>{const llm=CONTACT_LEAD_META[ls];const active=c.leadStatus===ls;const pipelineAuthor=isManager?"Manager":(members.find((m:any)=>m.id===loggedInMemberId)?.name||"Member");return <button key={ls} onClick={()=>updateContactLeadStatusCb(c.id,active?null:ls,pipelineAuthor)} style={{flex:1,padding:"7px 0",borderRadius:8,border:`1.5px solid ${active?llm.color:"#e5e5e5"}`,background:active?llm.bg:"#fff",color:active?llm.color:"#aaa",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{ls==="hot"?"🔴":ls==="warm"?"🟡":"🔵"} {llm.label}</button>;})}
                               </div>
                             </div>
                             {/* Callback date */}
@@ -2089,14 +2134,28 @@ export default function App() {
               const callbackDueToday=cs.filter((c:any)=>c.callbackDate===today).length;
               return {name,total,contacted,callback,interested,hot,stale,callbackDueToday};
             });
+            const campaignNames=Array.from(new Set(allContacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort();
+            const campaignRows=campaignNames.map(camp=>{
+              const cs=allContacts.filter((c:any)=>c.campaign===camp);
+              const total=cs.length;
+              const contacted=cs.filter((c:any)=>c.status==="contacted").length;
+              const callback=cs.filter((c:any)=>c.status==="callback").length;
+              const interested=cs.filter((c:any)=>c.status==="interested").length;
+              const convPct=total>0?Math.round(interested/total*100):0;
+              return {name:camp,total,contacted,callback,interested,convPct};
+            }).sort((a,b)=>b.interested-a.interested);
             const pct=(n:number,t:number)=>t>0?Math.round(n/t*100):0;
             return (
               <div className="fade-up">
                 <div style={{marginBottom:20}}>
-                  <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Agent Stats</div>
+                  <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Stats</div>
                   <div style={{fontSize:13,color:"#888",marginTop:2}}>{agentNames.length} agents · {allContacts.length} total contacts{unassignedCount>0?` · ${unassignedCount} unassigned`:""}</div>
                 </div>
-                {agentRows.length===0?(
+                <div className="stats-tab-bar">
+                  <button className={`stats-tab${statsTab==="agents"?" active":""}`} onClick={()=>setStatsTab("agents")}>Agents</button>
+                  <button className={`stats-tab${statsTab==="campaigns"?" active":""}`} onClick={()=>setStatsTab("campaigns")}>Campaigns</button>
+                </div>
+                {statsTab==="agents"&&(agentRows.length===0?(
                   <div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts assigned to agents yet.</div>
                 ):(
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -2110,10 +2169,11 @@ export default function App() {
                               <div style={{fontSize:12,color:"#888"}}>{r.total} contact{r.total!==1?"s":""}</div>
                             </div>
                           </div>
-                          <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                          <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
                             {r.hot>0&&<span style={{fontSize:11,fontWeight:700,color:"#dc2626",background:"#fff1f2",padding:"2px 8px",borderRadius:20}}>{r.hot} hot</span>}
                             {r.callbackDueToday>0&&<span style={{fontSize:11,fontWeight:700,color:"#d97706",background:"#fffbeb",padding:"2px 8px",borderRadius:20}}>{r.callbackDueToday} callback today</span>}
                             {r.stale>0&&<span style={{fontSize:11,fontWeight:700,color:"#6b7280",background:"#f3f4f6",padding:"2px 8px",borderRadius:20}}>{r.stale} stale (&gt;7d)</span>}
+                            {r.stale>0&&<button onClick={()=>handleReassignStale(r.name)} style={{fontSize:11,fontWeight:700,color:"#1a56db",background:"#eff6ff",border:"1.5px solid #bfdbfe",borderRadius:8,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}>Reassign stale →</button>}
                           </div>
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
@@ -2147,7 +2207,43 @@ export default function App() {
                       </div>
                     ))}
                   </div>
-                )}
+                ))}
+                {statsTab==="campaigns"&&(campaignRows.length===0?(
+                  <div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No campaigns found on contacts yet.</div>
+                ):(
+                  <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:12}}>
+                    {campaignRows.map(r=>(
+                      <div key={r.name} style={{background:"#fff",border:"1.5px solid #ebebeb",borderRadius:14,padding:"16px 18px"}}>
+                        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8,marginBottom:12}}>
+                          <div style={{fontWeight:700,fontSize:14,lineHeight:1.3,flex:1}}>{r.name}</div>
+                          <span style={{fontSize:12,fontWeight:800,color:"#059669",background:"#f0fdf4",padding:"3px 9px",borderRadius:20,flexShrink:0}}>{r.convPct}% conv.</span>
+                        </div>
+                        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6,marginBottom:10}}>
+                          {[
+                            {label:"Contacted",val:r.contacted,color:"#2563eb",bg:"#eff6ff"},
+                            {label:"Callback",val:r.callback,color:"#d97706",bg:"#fffbeb"},
+                            {label:"Interested",val:r.interested,color:"#059669",bg:"#f0fdf4"},
+                          ].map(({label,val,color,bg})=>(
+                            <div key={label} style={{background:bg,borderRadius:9,padding:"8px 10px",textAlign:"center"}}>
+                              <div style={{fontSize:9,fontWeight:700,color,textTransform:"uppercase" as const,letterSpacing:.4,marginBottom:3}}>{label}</div>
+                              <div style={{fontSize:18,fontWeight:800,color:"#111"}}>{val}</div>
+                            </div>
+                          ))}
+                        </div>
+                        {r.total>0&&(
+                          <div>
+                            <div style={{display:"flex",height:6,borderRadius:99,overflow:"hidden",gap:1}}>
+                              <div style={{flex:r.contacted,background:"#93c5fd",minWidth:r.contacted?2:0}}/>
+                              <div style={{flex:r.callback,background:"#fcd34d",minWidth:r.callback?2:0}}/>
+                              <div style={{flex:r.interested,background:"#6ee7b7",minWidth:r.interested?2:0}}/>
+                            </div>
+                            <div style={{fontSize:10,color:"#aaa",marginTop:4}}>{r.total} total contacts</div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
             );
           })()}
