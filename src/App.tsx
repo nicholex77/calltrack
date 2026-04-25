@@ -616,7 +616,7 @@ export default function App() {
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [contactSort, setContactSort]             = useState("status");
   const [contactLimit, setContactLimit]           = useState(100);
-  const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns">("agents");
+  const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns"|"funnel"|"log">("agents");
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
   const [showDedupModal, setShowDedupModal]       = useState(false);
@@ -630,6 +630,9 @@ export default function App() {
   const [assignMode, setAssignMode]               = useState<"even"|"custom">("even");
   const [assignSelectedMembers, setAssignSelectedMembers] = useState<Set<string>>(new Set());
   const [lastDistributionSnapshot, setLastDistributionSnapshot] = useState<{id:string,prevAgent:string|null}[]|null>(null);
+  const [showBulkReassignModal, setShowBulkReassignModal] = useState(false);
+  const [bulkReassignIds, setBulkReassignIds] = useState<Set<string>>(new Set());
+  const [bulkReassignTarget, setBulkReassignTarget] = useState("");
   const [pendingImport, setPendingImport] = useState<{file:File}|null>(null);
   const [pendingCampaignName, setPendingCampaignName] = useState("");
   const [deletionHistory, setDeletionHistory] = useState<Array<{hid:string,label:string,contacts:any[],timestamp:number}>>([]);
@@ -1349,6 +1352,30 @@ export default function App() {
     } finally { setExporting(false); }
   };
 
+  const exportFilteredContacts = (rows: any[]) => {
+    if(!rows.length){ showToast("No contacts to export"); return; }
+    const headers = ["name","phone","phone2","storeType","company","storeId","renId","campaign","status","salesAgent","lastTouched","callbackDate","remarks"];
+    const csv = [headers.join(","), ...rows.map(c=>headers.map(h=>`"${String((c as any)[h]||"").replace(/"/g,'""')}"`).join(","))].join("\n");
+    const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
+    a.download = `blurb_contacts_${todayKey()}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    showToast(`Exported ${rows.length} contacts`);
+  };
+
+  const bulkReassignContacts = () => {
+    if(!bulkReassignTarget) return;
+    const ids = bulkReassignIds;
+    setContacts(prev=>{
+      const next = prev.map(c=>ids.has(c.id)?{...c,salesAgent:bulkReassignTarget}:c);
+      saveLocalContacts(next);
+      upsertContacts(next.filter(c=>ids.has(c.id)));
+      return next;
+    });
+    setShowBulkReassignModal(false); setBulkReassignIds(new Set()); setBulkReassignTarget("");
+    setContactSelectMode(false); setSelectedContactIds(new Set());
+    showToast(`Reassigned ${ids.size} contact${ids.size!==1?"s":""} to ${bulkReassignTarget}`);
+  };
+
   const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
     const s = document.createElement("script"); s.src = src; s.onload = () => resolve(); s.onerror = reject;
@@ -1689,7 +1716,7 @@ export default function App() {
   return (
     <> <style>{CSS}</style> <div style={{minHeight:"100vh",background:"#fff"}}> {/* NAV */}
         <div style={{borderBottom:"1px solid #ebebeb",background:"#fff",position:"sticky",top:0,zIndex:50}}>
-          <div style={{maxWidth:1100,margin:"0 auto",padding:"0 20px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56,gap:12}}>
+          <div style={{maxWidth:"100%",margin:"0 auto",padding:"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56,gap:12}}>
             <div style={{display:"flex",alignItems:"center",gap:10}}>
               <div style={{width:30,height:30,borderRadius:9,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center"}}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
@@ -1730,7 +1757,7 @@ export default function App() {
             </div>
           )}
         </div>
-        <div className="page-wrap" style={{maxWidth:1100,margin:"0 auto",padding:"24px 20px 80px"}}> {/*  DAILY  */}
+        <div className="page-wrap" style={{maxWidth:"100%",margin:"0 auto",padding:"24px 32px 80px"}}> {/*  DAILY  */}
           {page==="daily"&&(
             <div className="fade-up">
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,gap:12,flexWrap:"wrap"}}>
@@ -1940,7 +1967,7 @@ export default function App() {
             const filtered  = filteredContacts;
             const anyActive = Object.values(contactFilters).some((a:any)=>a.length>0)||contactSearch.trim().length>0;
             const filterDefs = [
-              {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"}]},
+              {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"},{val:"not_answered",label:"Not Answered"},{val:"hangup",label:"Hung Up"}]},
               {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
               {key:"campaign",label:"Campaign", options:contactCampaigns.map(cp=>({val:cp,label:cp}))},
               {key:"agent",label:"Agent",options:[...contactAgentOpts.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]},
@@ -1956,7 +1983,8 @@ export default function App() {
                     {contactSelectMode&&selectedContactIds.size>0&&(
                       <>
                         {isManager&&<button onClick={deleteSelectedContacts} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #ef4444",background:"#ef4444",color:"#fff",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete ({selectedContactIds.size})</button>}
-                        {(["contacted","callback","interested"] as const).map(st=>{const stm=CONTACT_STATUS_META[st];return <button key={st} onClick={()=>bulkUpdateContactStatus(st,selectedContactIds)} style={{padding:"8px 12px",borderRadius:10,border:`1.5px solid ${stm.color}`,background:stm.bg,color:stm.color,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{stm.label}</button>;})}
+                        {isManager&&members.length>0&&<button onClick={()=>{setBulkReassignIds(new Set(selectedContactIds));setShowBulkReassignModal(true);}} style={{padding:"8px 14px",borderRadius:10,border:"1.5px solid #7c3aed",background:"#f5f3ff",color:"#7c3aed",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Reassign ({selectedContactIds.size})</button>}
+                        {(["contacted","callback","interested","not_answered","hangup"] as const).map(st=>{const stm=CONTACT_STATUS_META[st];return <button key={st} onClick={()=>bulkUpdateContactStatus(st,selectedContactIds)} style={{padding:"8px 12px",borderRadius:10,border:`1.5px solid ${stm.color}`,background:stm.bg,color:stm.color,fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{stm.label}</button>;})}
                       </>
                     )}
                     {isManager&&contacts.length>0&&!contactSelectMode&&(
@@ -1967,6 +1995,12 @@ export default function App() {
                     )}
                     {isManager&&lastDistributionSnapshot&&(
                       <button onClick={undoDistribution} style={{padding:"8px 16px",borderRadius:10,border:"1.5px solid #e5740a",background:"#fff7ed",color:"#c2410c",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↩ Undo Distribution</button>
+                    )}
+                    {filtered.length>0&&filtered.length<contacts.length&&(
+                      <button onClick={()=>exportFilteredContacts(filtered)} style={{padding:"8px 14px",borderRadius:10,border:"1.5px solid #059669",background:"#f0fdf4",color:"#059669",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↓ Export Filtered ({filtered.length})</button>
+                    )}
+                    {contacts.length>0&&!(filtered.length>0&&filtered.length<contacts.length)&&(
+                      <button onClick={()=>exportFilteredContacts(contacts)} style={{padding:"8px 14px",borderRadius:10,border:"1.5px solid #059669",background:"#f0fdf4",color:"#059669",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>↓ Export All ({contacts.length})</button>
                     )}
                     <button onClick={()=>{ setContactSelectMode(m=>!m); setSelectedContactIds(new Set()); }} style={{padding:"8px 16px",borderRadius:10,border:`1.5px solid ${contactSelectMode?"#111":"#e5e5e5"}`,background:contactSelectMode?"#111":"#fff",color:contactSelectMode?"#fff":"#555",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>{contactSelectMode?"Cancel":"Select"}</button>
                     <label style={{display:"inline-flex",alignItems:"center",gap:7,padding:"8px 16px",borderRadius:10,border:`1.5px solid ${importing?"#aaa":"#1a56db"}`,background:"#fff",color:importing?"#aaa":"#1a56db",fontSize:13,fontWeight:700,cursor:importing?"not-allowed":"pointer",fontFamily:"inherit",opacity:importing?.6:1}}>
@@ -2331,6 +2365,8 @@ export default function App() {
                 <div className="stats-tab-bar">
                   <button className={`stats-tab${statsTab==="agents"?" active":""}`} onClick={()=>setStatsTab("agents")}>Agents</button>
                   <button className={`stats-tab${statsTab==="campaigns"?" active":""}`} onClick={()=>setStatsTab("campaigns")}>Campaigns</button>
+                  <button className={`stats-tab${statsTab==="funnel"?" active":""}`} onClick={()=>setStatsTab("funnel")}>Funnel</button>
+                  <button className={`stats-tab${statsTab==="log"?" active":""}`} onClick={()=>setStatsTab("log")}>Call Log</button>
                 </div>
                 {statsTab==="agents"&&(agentRows.length===0?(
                   <div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts assigned to agents yet.</div>
@@ -2421,6 +2457,109 @@ export default function App() {
                     ))}
                   </div>
                 ))}
+                {statsTab==="funnel"&&(()=>{
+                  const total=allContacts.length;
+                  const answered=allContacts.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length;
+                  const callback=allContacts.filter((c:any)=>["callback","interested"].includes(c.status)).length;
+                  const interested=allContacts.filter((c:any)=>c.status==="interested").length;
+                  const notAnswered=allContacts.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length;
+                  const funnelSteps=[
+                    {label:"Total Contacts",val:total,color:"#6366f1",bg:"#eef2ff",pct:100},
+                    {label:"Answered",val:answered,color:"#2563eb",bg:"#eff6ff",pct:total>0?Math.round(answered/total*100):0},
+                    {label:"Callback / Follow-up",val:callback,color:"#d97706",bg:"#fffbeb",pct:total>0?Math.round(callback/total*100):0},
+                    {label:"Interested",val:interested,color:"#059669",bg:"#f0fdf4",pct:total>0?Math.round(interested/total*100):0},
+                  ];
+                  return (
+                    <div>
+                      <div style={{display:"flex",flexDirection:"column",gap:10,marginBottom:24}}>
+                        {funnelSteps.map((s,i)=>(
+                          <div key={s.label} style={{background:"#fff",border:`1.5px solid ${s.color}22`,borderRadius:14,padding:"14px 18px"}}>
+                            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
+                              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                                <div style={{width:28,height:28,borderRadius:8,background:s.bg,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:800,color:s.color}}>{i+1}</div>
+                                <span style={{fontWeight:700,fontSize:14}}>{s.label}</span>
+                              </div>
+                              <div style={{textAlign:"right"}}>
+                                <div style={{fontWeight:800,fontSize:20,color:"#111"}}>{s.val}</div>
+                                <div style={{fontSize:11,color:"#888"}}>{s.pct}% of total</div>
+                              </div>
+                            </div>
+                            <div style={{height:8,borderRadius:99,background:"#f3f4f6",overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${s.pct}%`,background:s.color,borderRadius:99,transition:"width .4s"}}/>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{background:"#fff",border:"1.5px solid #ebebeb",borderRadius:14,padding:"16px 18px"}}>
+                        <div style={{fontWeight:700,fontSize:14,marginBottom:12}}>Not Reached</div>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                          <div style={{background:"#f3f4f6",borderRadius:10,padding:"12px 14px"}}>
+                            <div style={{fontSize:11,fontWeight:700,color:"#6b7280",marginBottom:4}}>NOT ANSWERED</div>
+                            <div style={{fontSize:22,fontWeight:800,color:"#111"}}>{notAnswered}</div>
+                            <div style={{fontSize:11,color:"#aaa"}}>{total>0?Math.round(notAnswered/total*100):0}% of total</div>
+                          </div>
+                          <div style={{background:"#fff1f2",borderRadius:10,padding:"12px 14px"}}>
+                            <div style={{fontSize:11,fontWeight:700,color:"#ef4444",marginBottom:4}}>HUNG UP</div>
+                            <div style={{fontSize:22,fontWeight:800,color:"#111"}}>{allContacts.filter((c:any)=>c.status==="hangup").length}</div>
+                            <div style={{fontSize:11,color:"#aaa"}}>{total>0?Math.round(allContacts.filter((c:any)=>c.status==="hangup").length/total*100):0}% of total</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {statsTab==="log"&&(()=>{
+                  const logEntries:any[]=[];
+                  allContacts.forEach((c:any)=>{
+                    (c.history||[]).forEach((h:any)=>{ logEntries.push({...h,contactName:c.name,contactId:c.id,salesAgent:c.salesAgent||""}); });
+                  });
+                  logEntries.sort((a,b)=>new Date(b.timestamp||0).getTime()-new Date(a.timestamp||0).getTime());
+                  const today=todayKey();
+                  const todayEntries=logEntries.filter(e=>(e.timestamp||"").startsWith(today));
+                  const olderEntries=logEntries.filter(e=>!(e.timestamp||"").startsWith(today));
+                  const renderEntry=(e:any,idx:number)=>{
+                    const stm=CONTACT_STATUS_META[e.to as string]||{label:e.to,color:"#888",bg:"#f3f4f6"};
+                    const fromStm=e.from?CONTACT_STATUS_META[e.from as string]||{label:e.from,color:"#aaa",bg:"#f9f9f9"}:null;
+                    const time=e.timestamp?new Date(e.timestamp).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}):"";
+                    return (
+                      <div key={idx} style={{display:"flex",alignItems:"flex-start",gap:12,padding:"10px 0",borderBottom:"1px solid #f3f4f6"}}>
+                        <div style={{width:32,height:32,borderRadius:9,background:stm.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={stm.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+                        </div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,fontWeight:600,color:"#111"}}>{e.contactName||"Unknown"}</div>
+                          <div style={{fontSize:12,color:"#888",display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:2}}>
+                            {fromStm&&<><span style={{color:fromStm.color,fontWeight:600,background:fromStm.bg,padding:"1px 6px",borderRadius:6,fontSize:11}}>{fromStm.label}</span><span>→</span></>}
+                            <span style={{color:stm.color,fontWeight:600,background:stm.bg,padding:"1px 6px",borderRadius:6,fontSize:11}}>{stm.label}</span>
+                            {e.by&&<span style={{color:"#aaa"}}>by {e.by}</span>}
+                          </div>
+                        </div>
+                        <div style={{fontSize:11,color:"#bbb",flexShrink:0,paddingTop:2}}>{time}</div>
+                      </div>
+                    );
+                  };
+                  if(logEntries.length===0) return <div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No status changes recorded yet. Status changes are logged automatically.</div>;
+                  return (
+                    <div style={{background:"#fff",border:"1.5px solid #ebebeb",borderRadius:14,padding:"16px 20px"}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                        <div style={{fontWeight:700,fontSize:14}}>Status Change Log</div>
+                        <span style={{fontSize:12,color:"#888"}}>{logEntries.length} total · {todayEntries.length} today</span>
+                      </div>
+                      {todayEntries.length>0&&(
+                        <>
+                          <div style={{fontSize:11,fontWeight:700,color:"#1a56db",marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>Today</div>
+                          {todayEntries.slice(0,50).map(renderEntry)}
+                        </>
+                      )}
+                      {olderEntries.length>0&&(
+                        <>
+                          <div style={{fontSize:11,fontWeight:700,color:"#888",margin:"14px 0 6px",textTransform:"uppercase",letterSpacing:.5}}>Earlier</div>
+                          {olderEntries.slice(0,100).map(renderEntry)}
+                        </>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })()}
@@ -2785,6 +2924,22 @@ export default function App() {
             </div>
           );
         })()}
+        {showBulkReassignModal&&(
+          <div className="modal-overlay" onClick={()=>setShowBulkReassignModal(false)}>
+            <div className="confirm-modal" onClick={e=>e.stopPropagation()}>
+              <div style={{fontWeight:800,fontSize:17,marginBottom:6,letterSpacing:-.3}}>Reassign Contacts</div>
+              <div style={{fontSize:13,color:"#555",marginBottom:16,lineHeight:1.6}}>Reassign <strong>{bulkReassignIds.size}</strong> selected contact{bulkReassignIds.size!==1?"s":""} to:</div>
+              <select value={bulkReassignTarget} onChange={e=>setBulkReassignTarget(e.target.value)} style={{width:"100%",padding:"10px 12px",borderRadius:10,border:"1.5px solid #e5e5e5",fontSize:14,fontFamily:"inherit",marginBottom:16,outline:"none",background:"#fff"}}>
+                <option value="">— Select agent —</option>
+                {members.map((m:any)=><option key={m.id} value={m.name}>{m.name}</option>)}
+              </select>
+              <div style={{display:"flex",gap:10}}>
+                <button className="ghost-btn" style={{flex:1}} onClick={()=>setShowBulkReassignModal(false)}>Cancel</button>
+                <button className="primary-btn" style={{flex:1,opacity:bulkReassignTarget?1:.4,cursor:bulkReassignTarget?"pointer":"not-allowed"}} disabled={!bulkReassignTarget} onClick={bulkReassignContacts}>Reassign</button>
+              </div>
+            </div>
+          </div>
+        )}
         {pendingImport&&(
           <div className="modal-overlay" onClick={()=>setPendingImport(null)}>
             <div className="confirm-modal" onClick={e=>e.stopPropagation()}>
