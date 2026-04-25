@@ -33,6 +33,21 @@ const staleness = (lastTouched:string) => {
 };
 const fmtNoteTime = (iso:string) => { try{ const d=new Date(iso); return d.toLocaleDateString("en-MY",{day:"numeric",month:"short"})+", "+d.toLocaleTimeString("en-MY",{hour:"2-digit",minute:"2-digit"}); }catch{return iso;} };
 
+// ── Security helpers ────────────────────────────────────────────────────────
+const hashPin = async (pin: string): Promise<string> => {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode("blurb:" + pin));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+};
+const isPinHash = (s: string) => s.length === 64 && /^[0-9a-f]+$/.test(s);
+
+// Clipboard auto-clear — wipes clipboard 30s after any sensitive copy
+let _clipTimer: ReturnType<typeof setTimeout>|null = null;
+const safeCopy = (text: string) => {
+  navigator.clipboard.writeText(text).catch(()=>{});
+  if(_clipTimer) clearTimeout(_clipTimer);
+  _clipTimer = setTimeout(()=>navigator.clipboard.writeText("").catch(()=>{}), 30_000);
+};
+
 const STORAGE_KEY = "calltrack_v5";
 // localStorage as fast local cache
 const loadLocal  = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"); } catch { return {}; } };
@@ -232,7 +247,7 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
       <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:2}}>{label}</div>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10}}>
         <div style={{fontSize:13,color:"#111",wordBreak:"break-word" as const,flex:1}}>{value}</div>
-        <button onClick={e=>{e.stopPropagation();navigator.clipboard.writeText(value);onToast(label+" copied");}} style={{padding:"2px 9px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+        <button onClick={e=>{e.stopPropagation();safeCopy(value);onToast(label+" copied");}} style={{padding:"2px 9px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
       </div>
     </div>
   );
@@ -350,7 +365,7 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
             </div>
           </div>
           <div style={{display:"flex",gap:8,marginTop:12}}>
-            <button onClick={()=>{const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n");navigator.clipboard.writeText(txt);onToast("All details copied");}} style={{flex:1,padding:"8px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
+            <button onClick={()=>{const txt=[`Name: ${c.name||""}`,`Phone: ${c.phone||""}`,`Mobile / Alt. Phone: ${c.phone2||""}`,`Store ID: ${c.storeId||""}`,`REN ID: ${c.renId||""}`,`Store Type: ${c.storeType||""}`,`Company / Agency: ${c.company||""}`,`Status: ${sm.label}`,`Agent (sheet): ${c.agentName||""}`,`Date: ${c.date?fmt(c.date):""}`,`Campaign: ${c.campaign||""}`,`Remarks: ${c.remarks||""}`,`Sales Agent: ${c.salesAgent||""}`].filter(l=>!l.endsWith(": ")).join("\n");safeCopy(txt);onToast("All details copied");}} style={{flex:1,padding:"8px 0",borderRadius:9,border:"1.5px solid #1a56db",background:"#fff",color:"#1a56db",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Copy All</button>
             {isManager&&<button onClick={()=>{if(window.confirm(`Delete ${c.name||"this contact"}?`)){onDelete(c.id);onToggle(null);}}} style={{padding:"8px 16px",borderRadius:9,border:"1.5px solid #ef4444",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Delete</button>}
           </div>
         </div>
@@ -427,17 +442,20 @@ function PinScreen({ onUnlock, db }: { onUnlock:(role:string, memberId:string|nu
     if(val&&i<3) refs[i+1].current?.focus();
     if(val&&i===3){
       const entered=next.join("");
-      if(selected==="manager"&&entered===managerPin){ setAttempts(0); onUnlock("manager",null); return; }
-      if(selected==="member"&&entered===memberPin){
-        setAttempts(0);
-        if(members.length===0){ onUnlock("member",null); return; }
-        setPickMember(true); return;
-      }
-      const next_attempts = attempts + 1;
-      setAttempts(next_attempts);
-      if(next_attempts >= MAX_PIN_ATTEMPTS){ setLockedUntil(Date.now()+PIN_LOCKOUT_MS); setPin(["","","",""]); return; }
-      setError(true); setShakeKey(k=>k+1); setPin(["","","",""]);
-      setTimeout(()=>refs[0].current?.focus(),50);
+      const verify = async (input:string, stored:string) =>
+        isPinHash(stored) ? (await hashPin(input))===stored : input===stored;
+      Promise.all([verify(entered,managerPin), verify(entered,memberPin)]).then(([okMgr,okMbr])=>{
+        if(selected==="manager"&&okMgr){ setAttempts(0); onUnlock("manager",null); return; }
+        if(selected==="member"&&okMbr){
+          setAttempts(0);
+          if(members.length===0){ onUnlock("member",null); return; }
+          setPickMember(true); return;
+        }
+        const na=attempts+1; setAttempts(na);
+        if(na>=MAX_PIN_ATTEMPTS){ setLockedUntil(Date.now()+PIN_LOCKOUT_MS); setPin(["","","",""]); return; }
+        setError(true); setShakeKey(k=>k+1); setPin(["","","",""]);
+        setTimeout(()=>refs[0].current?.focus(),50);
+      });
     }
   };
   const handleKey = (i:number, e:React.KeyboardEvent<HTMLInputElement>) => { if(e.key==="Backspace"&&!pin[i]&&i>0) refs[i-1].current?.focus(); };
@@ -688,7 +706,40 @@ export default function App() {
   const handlePipelineCardClick = useCallback((id:string)=>setPipelineDetailId(id),[]);
 
   const handleUnlock = (r:string, memberId:string|null) => { setRole(r); setLoggedInMemberId(memberId||null); setPage("daily"); };
-  const handleLock   = () => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); };
+  const handleLock   = useCallback(() => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); },[]);
+
+  // ── Idle auto-lock (15 min) + tab-hidden lock (5 min) ─────────────────────
+  const roleRef          = useRef<string|null>(null);
+  const lastActivityRef  = useRef(Date.now());
+  const hiddenAtRef      = useRef<number|null>(null);
+  useEffect(()=>{ roleRef.current=role; },[role]);
+
+  useEffect(()=>{
+    const touch = ()=>{ lastActivityRef.current=Date.now(); };
+    window.addEventListener("mousemove",touch,{passive:true});
+    window.addEventListener("keydown",touch,{passive:true});
+    window.addEventListener("click",touch,{passive:true});
+    window.addEventListener("touchstart",touch,{passive:true});
+
+    const idleCheck = setInterval(()=>{
+      if(roleRef.current && Date.now()-lastActivityRef.current > 15*60*1000) handleLock();
+    }, 30_000);
+
+    const onVisibility = ()=>{
+      if(document.hidden){ hiddenAtRef.current=Date.now(); }
+      else { if(hiddenAtRef.current && Date.now()-hiddenAtRef.current > 5*60*1000 && roleRef.current) handleLock(); hiddenAtRef.current=null; }
+    };
+    document.addEventListener("visibilitychange",onVisibility);
+
+    return ()=>{
+      window.removeEventListener("mousemove",touch);
+      window.removeEventListener("keydown",touch);
+      window.removeEventListener("click",touch);
+      window.removeEventListener("touchstart",touch);
+      clearInterval(idleCheck);
+      document.removeEventListener("visibilitychange",onVisibility);
+    };
+  },[handleLock]);
 
   const addMember = () => {
     if(!memberInput.trim()) return;
@@ -1080,24 +1131,28 @@ export default function App() {
   const unsaveTask = (taskId:string) => { updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.saved=false; }); };
   const updateTaskTitle = (taskId:string, newTitle:string) => { if(!newTitle.trim()) return; updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.title=newTitle.trim(); }); };
 
-  const saveSettings = () => {
+  const saveSettings = async () => {
+    const mgr = settingManagerPin.length===4 ? await hashPin(settingManagerPin) : null;
+    const mbr = settingMemberPin.length===4  ? await hashPin(settingMemberPin)  : null;
     updateDb((db:any)=>{
       if(!db.settings) db.settings={};
-      if(settingManagerPin.length===4) db.settings.managerPin=settingManagerPin;
-      if(settingMemberPin.length===4)  db.settings.agentPin=settingMemberPin;
-      if(settingCallTarget!=="")       db.settings.callTarget=parseInt(settingCallTarget)||0;
-      if(settingIntTarget!=="")        db.settings.intTarget=parseInt(settingIntTarget)||0;
+      if(mgr) db.settings.managerPin=mgr;
+      if(mbr) db.settings.agentPin=mbr;
+      if(settingCallTarget!=="") db.settings.callTarget=parseInt(settingCallTarget)||0;
+      if(settingIntTarget!=="")  db.settings.intTarget=parseInt(settingIntTarget)||0;
     });
     showToast("Settings saved");
     setSettingManagerPin(""); setSettingMemberPin(""); setSettingCallTarget(""); setSettingIntTarget("");
   };
 
-  const resetManagerPin = () => {
-    updateDb((db:any)=>{ if(!db.settings) db.settings={}; db.settings.managerPin="1234"; });
+  const resetManagerPin = async () => {
+    const h=await hashPin("1234");
+    updateDb((db:any)=>{ if(!db.settings) db.settings={}; db.settings.managerPin=h; });
     showToast("Manager PIN reset to 1234");
   };
-  const resetMemberPin = () => {
-    updateDb((db:any)=>{ if(!db.settings) db.settings={}; db.settings.agentPin="0000"; });
+  const resetMemberPin = async () => {
+    const h=await hashPin("0000");
+    updateDb((db:any)=>{ if(!db.settings) db.settings={}; db.settings.agentPin=h; });
     showToast("Member PIN reset to 0000");
   };
   const baseMonday = weekStart(todayKey());
@@ -2049,7 +2104,7 @@ export default function App() {
                             <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:2}}>{label}</div>
                             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
                               <div style={{fontSize:13,color:"#111",flex:1,wordBreak:"break-word" as const}}>{value}</div>
-                              <button onClick={()=>{navigator.clipboard.writeText(value);showToast(label+" copied");}} style={{padding:"2px 8px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
+                              <button onClick={()=>{safeCopy(value);showToast(label+" copied");}} style={{padding:"2px 8px",borderRadius:6,border:"1.5px solid #e5e5e5",background:"#fff",color:"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Copy</button>
                             </div>
                           </div>
                         );
