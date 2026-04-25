@@ -57,6 +57,7 @@ const DB_ROW_ID = import.meta.env.VITE_DB_ROW_ID as string || "main";
 const loadRemote = async () => { const { data } = await supabase.from("calltrack").select("data").eq("id",DB_ROW_ID).single(); return data?.data||{}; };
 const saveRemote = async (data:any): Promise<void> => { const {error} = await supabase.from("calltrack").upsert({id:DB_ROW_ID,data,updated_at:new Date().toISOString()}); if(error) throw error; };
 
+
 const TASK_TYPES = {
   telesales: { label:"Telesales Call", color:"#2563eb", bg:"#eff6ff" },
   whatsapp:  { label:"WhatsApp Follow-up", color:"#059669", bg:"#ecfdf5" },
@@ -630,27 +631,24 @@ export default function App() {
   // ── Supabase real-time sync ──────────────────────────────────────────────────
   useEffect(()=>{
     let mounted = true;
+
+    // Load blob (settings, members, days — no contacts)
     loadRemote().then(data=>{
       if(!mounted) return;
       if(data && Object.keys(data).length>0){
         const { __writerId:_, ...clean } = data;
-        saveLocal(clean);
-        setDb(clean);
+        saveLocal(clean); setDb(clean);
       }
       setSyncing(false);
     }).catch(()=>{ if(mounted) setSyncing(false); });
 
-    const channel = supabase
-      .channel("calltrack-realtime")
+    const channel = supabase.channel("calltrack-realtime")
       .on("postgres_changes",{event:"*",schema:"public",table:"calltrack"},(payload:any)=>{
         const incoming = payload.new?.data;
-        if(!incoming) return;
-        if(incoming.__writerId === writerIdRef.current) return;
+        if(!incoming||incoming.__writerId===writerIdRef.current) return;
         const { __writerId:_, ...clean } = incoming;
-        saveLocal(clean);
-        setDb(clean);
-      })
-      .subscribe();
+        saveLocal(clean); setDb(clean);
+      }).subscribe();
 
     return ()=>{ mounted=false; channel.unsubscribe(); supabase.removeChannel(channel); };
   },[]);
@@ -687,6 +685,7 @@ export default function App() {
     return next;
   }), [attemptSave]);
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
+
 
   const isManager  = role==="manager";
   const members:any[]  = db.members||[];
@@ -862,16 +861,14 @@ export default function App() {
     const toDelete=(db.contacts||[]).filter((c:any)=>selectedContactIds.has(c.id));
     if(toDelete.length) pushDeletionHistory(`${toDelete.length} contacts`,toDelete);
     updateDb((db:any)=>{ db.contacts=(db.contacts||[]).filter((c:any)=>!selectedContactIds.has(c.id)); });
-    setSelectedContactIds(new Set());
-    setContactSelectMode(false);
+    setSelectedContactIds(new Set()); setContactSelectMode(false);
   };
 
   const deleteAllContacts = () => {
     const all=db.contacts||[];
     if(all.length) pushDeletionHistory(`All ${all.length} contacts`,all);
     updateDb((db:any)=>{ db.contacts=[]; });
-    setSelectedContactIds(new Set());
-    setContactSelectMode(false);
+    setSelectedContactIds(new Set()); setContactSelectMode(false);
   };
 
   const undoDelete = (hid:string) => {
@@ -922,8 +919,7 @@ export default function App() {
   const bulkUpdateContactStatus = useCallback((status:string, ids:Set<string>) => {
     const size=ids.size;
     updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(ids.has(c.id)){ if(c.status!==status){if(!c.history)c.history=[];c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:"Bulk",timestamp:new Date().toISOString()});} c.status=status; c.lastTouched=todayKey(); } }); });
-    setContactSelectMode(false);
-    setSelectedContactIds(new Set());
+    setContactSelectMode(false); setSelectedContactIds(new Set());
     showToast(`Updated ${size} contact${size!==1?"s":""} to ${CONTACT_STATUS_META[status as keyof typeof CONTACT_STATUS_META]?.label||status}.`);
   },[showToast]);
 
@@ -966,7 +962,6 @@ export default function App() {
 
   const assignContactsRandomly = () => {
     const pool = [...(db.contacts||[])].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
-    // Fisher-Yates shuffle
     for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
     const assignments: Record<string,string> = {};
     if(assignMode==="even"){
@@ -987,29 +982,21 @@ export default function App() {
     }
     const total=Object.keys(assignments).length;
     if(!total){showToast("No contacts to assign — check pool size or counts.");return;}
-    // Capture snapshot of previous agents for undo
-    const snapshot=(db.contacts||[])
-      .filter((c:any)=>assignments[c.id]!==undefined)
-      .map((c:any)=>({id:c.id, prevAgent:c.salesAgent??null}));
+    const snapshot=(db.contacts||[]).filter((c:any)=>assignments[c.id]!==undefined).map((c:any)=>({id:c.id,prevAgent:c.salesAgent??null}));
     setLastDistributionSnapshot(snapshot);
-    updateDb((db:any)=>{(db.contacts||[]).forEach((c:any)=>{if(assignments[c.id]) c.salesAgent=assignments[c.id];});});
+    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(assignments[c.id]) c.salesAgent=assignments[c.id]; }); });
     const agentCount=new Set(Object.values(assignments)).size;
     showToast(`Assigned ${total} contact${total!==1?"s":""} across ${agentCount} agent${agentCount!==1?"s":""}.`);
-    setShowAssignModal(false);
-    setAssignCounts({});
-    setAssignSelectedMembers(new Set());
+    setShowAssignModal(false); setAssignCounts({}); setAssignSelectedMembers(new Set());
   };
 
   const undoDistribution = () => {
     if(!lastDistributionSnapshot) return;
     const snap=lastDistributionSnapshot;
-    updateDb((db:any)=>{
-      const map:Record<string,string|null>={};
-      snap.forEach(s=>map[s.id]=s.prevAgent);
-      (db.contacts||[]).forEach((c:any)=>{ if(c.id in map) c.salesAgent=map[c.id]; });
-    });
-    setLastDistributionSnapshot(null);
-    showToast("Distribution undone.");
+    const map:Record<string,string|null>={};
+    snap.forEach(s=>map[s.id]=s.prevAgent);
+    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(c.id in map) c.salesAgent=map[c.id]; }); });
+    setLastDistributionSnapshot(null); showToast("Distribution undone.");
   };
 
   const importContactsFromCSV = (file: File, campaignName: string) => {
@@ -1093,7 +1080,6 @@ export default function App() {
       const existingPhones=new Set((db.contacts||[]).filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
       const crossDups=imported.filter((c:any)=>c.phone&&existingPhones.has(stripPhone(c.phone))).length;
 
-      // Shallow-spread instead of structuredClone — avoids freezing the main thread for large datasets
       setDb((prev:any) => {
         const allContacts: any[] = prev.contacts || [];
         const otherCampaign = allContacts.filter((c:any) => c.campaign !== campaignName);
@@ -2654,7 +2640,7 @@ export default function App() {
           </div>
         )}
         {showAssignModal&&(()=>{
-          const pool=(db.contacts||[]).filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
+          const pool=contacts.filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
           const selectedList=(db.members||[]).filter((m:any)=>assignSelectedMembers.has(m.id));
           const customTotal=Object.entries(assignCounts).filter(([id])=>assignSelectedMembers.has(id)).reduce((s,[,v])=>s+(parseInt(v)||0),0);
           const perMember=selectedList.length>0?Math.ceil(pool.length/selectedList.length):0;
