@@ -523,6 +523,7 @@ export default function App() {
   const [contactSelectMode, setContactSelectMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [contactSort, setContactSort]             = useState("status");
+  const [contactLimit, setContactLimit]           = useState(100);
   const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns">("agents");
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
@@ -630,8 +631,8 @@ export default function App() {
   const allContacts:any[] = db.contacts||[];
   const contactCampaigns  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[],[allContacts]);
   const contactAgentOpts  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[],[allContacts]);
-  const toggleContactFilter = useCallback((dim:string, val:string) => setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }),[]);
-  const clearContactFilters = useCallback(() => setContactFilters({status:[],lead:[],campaign:[],agent:[]}),[]);
+  const toggleContactFilter = useCallback((dim:string, val:string) => { setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }); setContactLimit(100); },[]);
+  const clearContactFilters = useCallback(() => { setContactFilters({status:[],lead:[],campaign:[],agent:[]}); setContactLimit(100); },[]);
   const filteredContacts  = useMemo(()=>{
     const cf=contactFilters; const q=contactSearch.trim().toLowerCase();
     const filtered=allContacts.filter((c:any)=>{
@@ -987,8 +988,13 @@ export default function App() {
       const imported = Object.values(seen) as any[];
       if (!imported.length) { showToast("No qualifying rows found (need Answered/Callback/Interested)."); setImporting(false); return; }
 
-      updateDb((db:any) => {
-        const allContacts: any[] = db.contacts || [];
+      // Compute cross-campaign duplicates from current snapshot before mutating
+      const existingPhones=new Set((db.contacts||[]).filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
+      const crossDups=imported.filter((c:any)=>c.phone&&existingPhones.has(stripPhone(c.phone))).length;
+
+      // Shallow-spread instead of structuredClone — avoids freezing the main thread for large datasets
+      setDb((prev:any) => {
+        const allContacts: any[] = prev.contacts || [];
         const otherCampaign = allContacts.filter((c:any) => c.campaign !== campaignName);
         const sameCampaign  = allContacts.filter((c:any) => c.campaign === campaignName);
         const existingMap: any = {};
@@ -1003,11 +1009,16 @@ export default function App() {
             existingMap[k] = { ...c, leadStatus: ex?.leadStatus||null };
           }
         });
-        db.contacts = [...otherCampaign, ...Object.values(existingMap)];
+        const next = {...prev, contacts: [...otherCampaign, ...Object.values(existingMap)]};
+        saveLocal(next);
+        pendingSaveRef.current = {...next, __writerId: writerIdRef.current};
+        retryCountRef.current = 0;
+        if(saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) attemptSave(pendingSaveRef.current); }, 1200);
+        return next;
       });
 
-      const existingPhones=new Set((db.contacts||[]).filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
-      const crossDups=imported.filter((c:any)=>c.phone&&existingPhones.has(stripPhone(c.phone))).length;
+      setContactLimit(100);
       showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}"${crossDups>0?` · ${crossDups} duplicate phone${crossDups!==1?"s":""} found in other campaigns`:""}.`);
       setImporting(false);
     };
@@ -1852,7 +1863,7 @@ export default function App() {
                 })()}
                 {/* Search + Google-Sheets-style filter bar */}
                 <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap",alignItems:"center"}}>
-                  <input value={contactSearch} onChange={e=>setContactSearch(e.target.value)} placeholder="🔍 Search name, phone, store…" style={{flex:1,minWidth:160,border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 12px",fontSize:13,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                  <input value={contactSearch} onChange={e=>{setContactSearch(e.target.value);setContactLimit(100);}} placeholder="🔍 Search name, phone, store…" style={{flex:1,minWidth:160,border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 12px",fontSize:13,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
                   {filterDefs.map(fd=>{
                     const active=contactFilters[fd.key]||[];
                     const isOpen=activeFilterDropdown===fd.key;
@@ -1909,7 +1920,7 @@ export default function App() {
                 {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
                 {/* List rows — accordion */}
                 <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                  {filtered.map((c:any)=>(
+                  {filtered.slice(0,contactLimit).map((c:any)=>(
                     <ContactRow
                       key={c.id}
                       c={c}
@@ -1931,6 +1942,11 @@ export default function App() {
                     />
                   ))}
                 </div>
+                {filtered.length>contactLimit&&(
+                  <button onClick={()=>setContactLimit(l=>l+100)} style={{width:"100%",padding:"11px",borderRadius:10,border:"1.5px solid #e5e5e5",background:"#fafafa",color:"#555",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginTop:4}}>
+                    Show {Math.min(100,filtered.length-contactLimit)} more <span style={{color:"#aaa",fontWeight:400}}>({filtered.length-contactLimit} remaining)</span>
+                  </button>
+                )}
                 {/* Deletion history */}
                 {deletionHistory.length>0&&(
                   <div style={{marginTop:32}}>
