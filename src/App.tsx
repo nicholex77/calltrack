@@ -58,6 +58,25 @@ const loadRemote = async () => { const { data } = await supabase.from("calltrack
 const saveRemote = async (data:any): Promise<void> => { const {error} = await supabase.from("calltrack").upsert({id:DB_ROW_ID,data,updated_at:new Date().toISOString()}); if(error) throw error; };
 
 
+// ── Contacts table helpers ──────────────────────────────────────────────────
+const CONTACTS_KEY = "calltrack_contacts_v1";
+const loadLocalContacts = () => { try { return JSON.parse(localStorage.getItem(CONTACTS_KEY)||"[]"); } catch { return []; } };
+const saveLocalContacts = (cs:any[]) => { try { localStorage.setItem(CONTACTS_KEY, JSON.stringify(cs)); } catch {} };
+const contactToDb = (c:any) => ({ id:c.id, row_key:DB_ROW_ID, name:c.name||null, phone:c.phone||null, phone2:c.phone2||null, store_type:c.storeType||null, company:c.company||null, store_id:c.storeId||null, ren_id:c.renId||null, agent_name:c.agentName||null, date:c.date||null, campaign:c.campaign||null, remarks:c.remarks||null, status:c.status||"contacted", lead_status:c.leadStatus||null, sales_agent:c.salesAgent||null, last_touched:c.lastTouched||null, callback_date:c.callbackDate||null, notes:c.notes||[], history:c.history||[] });
+const dbToContact = (r:any) => ({ id:r.id, name:r.name||"", phone:r.phone||"", phone2:r.phone2||"", storeType:r.store_type||"", company:r.company||"", storeId:r.store_id||"", renId:r.ren_id||"", agentName:r.agent_name||"", date:r.date||"", campaign:r.campaign||"", remarks:r.remarks||"", status:r.status||"contacted", leadStatus:r.lead_status||null, salesAgent:r.sales_agent||"", lastTouched:r.last_touched||"", callbackDate:r.callback_date||"", notes:r.notes||[], history:r.history||[] });
+const loadRemoteContacts = async ():Promise<any[]> => { const {data,error}=await supabase.from("contacts").select("*").eq("row_key",DB_ROW_ID); if(error){console.error("loadRemoteContacts",error);return [];} return (data||[]).map(dbToContact); };
+const upsertContact = async (c:any):Promise<void> => { const {error}=await supabase.from("contacts").upsert(contactToDb(c)); if(error) console.error("upsertContact",error); };
+const upsertContacts = async (cs:any[]):Promise<void> => {
+  if(!cs.length) return;
+  const rows = cs.map(contactToDb);
+  for(let i=0;i<rows.length;i+=500){
+    const {error}=await supabase.from("contacts").upsert(rows.slice(i,i+500));
+    if(error) console.error("upsertContacts batch",i,error);
+  }
+};
+const deleteRemoteContact = async (id:string):Promise<void> => { await supabase.from("contacts").delete().eq("id",id).eq("row_key",DB_ROW_ID); };
+const deleteRemoteContacts = async (ids:string[]):Promise<void> => { if(!ids.length)return; await supabase.from("contacts").delete().in("id",ids).eq("row_key",DB_ROW_ID); };
+
 const TASK_TYPES = {
   telesales: { label:"Telesales Call", color:"#2563eb", bg:"#eff6ff" },
   whatsapp:  { label:"WhatsApp Follow-up", color:"#059669", bg:"#ecfdf5" },
@@ -619,6 +638,8 @@ export default function App() {
   const [pipelineNoteText,       setPipelineNoteText]      = useState("");
   const [exporting, setExporting]                 = useState(false);
 
+  const [contacts, setContacts] = useState<any[]>(()=>loadLocalContacts());
+
   const modalRef      = useRef<HTMLInputElement>(null);
   const nextColorRef  = useRef<number>(0);
   const writerIdRef   = useRef(uid());
@@ -642,7 +663,19 @@ export default function App() {
       setSyncing(false);
     }).catch(()=>{ if(mounted) setSyncing(false); });
 
-    const channel = supabase.channel("calltrack-realtime")
+    // Load contacts table; migrate from Supabase blob if empty
+    loadRemoteContacts().then(async remote=>{
+      if(!mounted) return;
+      if(remote.length===0){
+        const blobRemote = await loadRemote();
+        const all:any[] = blobRemote?.contacts||[];
+        if(all.length){ await upsertContacts(all); saveLocalContacts(all); if(mounted) setContacts(all); }
+      } else {
+        saveLocalContacts(remote); if(mounted) setContacts(remote);
+      }
+    }).catch(e=>console.error("contacts load",e));
+
+    const blobChannel = supabase.channel("calltrack-realtime")
       .on("postgres_changes",{event:"*",schema:"public",table:"calltrack"},(payload:any)=>{
         const incoming = payload.new?.data;
         if(!incoming||incoming.__writerId===writerIdRef.current) return;
@@ -650,7 +683,17 @@ export default function App() {
         saveLocal(clean); setDb(clean);
       }).subscribe();
 
-    return ()=>{ mounted=false; channel.unsubscribe(); supabase.removeChannel(channel); };
+    const contactsChannel = supabase.channel("contacts-realtime")
+      .on("postgres_changes",{event:"*",schema:"public",table:"contacts"},(payload:any)=>{
+        if(payload.eventType==="DELETE"){
+          setContacts(prev=>{ const n=prev.filter((c:any)=>c.id!==payload.old?.id); saveLocalContacts(n); return n; });
+        } else if(payload.new){
+          const c=dbToContact(payload.new);
+          setContacts(prev=>{ const idx=prev.findIndex((x:any)=>x.id===c.id); const n=idx>=0?[...prev.slice(0,idx),c,...prev.slice(idx+1)]:[...prev,c]; saveLocalContacts(n); return n; });
+        }
+      }).subscribe();
+
+    return ()=>{ mounted=false; blobChannel.unsubscribe(); contactsChannel.unsubscribe(); supabase.removeChannel(blobChannel); supabase.removeChannel(contactsChannel); };
   },[]);
 
   useEffect(()=>{ if(!modal) return; const t=setTimeout(()=>modalRef.current?.focus(),60); return ()=>clearTimeout(t); },[modal]);
@@ -686,6 +729,15 @@ export default function App() {
   }), [attemptSave]);
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
 
+  const mutateContact = useCallback((id:string, fn:(c:any)=>void) => {
+    setContacts(prev=>{
+      const idx=prev.findIndex((c:any)=>c.id===id); if(idx<0) return prev;
+      const next=[...prev]; const c={...next[idx]}; fn(c); next[idx]=c;
+      saveLocalContacts(next); upsertContact(c);
+      return next;
+    });
+  },[]);
+
 
   const isManager  = role==="manager";
   const members:any[]  = db.members||[];
@@ -694,7 +746,7 @@ export default function App() {
   const intTarget  = parseInt(String(settings.intTarget||0))||0;
 
   // ── Contact filters — must live at top level (Rules of Hooks) ────────────
-  const allContacts:any[] = db.contacts||[];
+  const allContacts:any[] = contacts;
   const contactCampaigns  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[],[allContacts]);
   const contactAgentOpts  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[],[allContacts]);
   const toggleContactFilter = useCallback((dim:string, val:string) => { setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }); setContactLimit(100); },[]);
@@ -756,7 +808,7 @@ export default function App() {
   const handleUnlock = (r:string, memberId:string|null) => {
     setRole(r); setLoggedInMemberId(memberId||null); setPage("daily");
     if("Notification" in window){
-      const notify=()=>{ const due=(db.contacts||[]).filter((c:any)=>c.callbackDate===todayKey()).length; if(due>0) new Notification("blurB — Callbacks Due Today",{body:`${due} callback${due!==1?"s":""} scheduled for today`,icon:"/vite.svg"}); };
+      const notify=()=>{ const due=contacts.filter((c:any)=>c.callbackDate===todayKey()).length; if(due>0) new Notification("blurB — Callbacks Due Today",{body:`${due} callback${due!==1?"s":""} scheduled for today`,icon:"/vite.svg"}); };
       if(Notification.permission==="granted") notify();
       else if(Notification.permission!=="denied") Notification.requestPermission().then(p=>{if(p==="granted")notify();});
     }
@@ -774,20 +826,22 @@ export default function App() {
 
   const mergeDedupContacts = useCallback((keepId:string, removeIds:string[])=>{
     const PRIORITY:any={interested:3,callback:2,contacted:1};
-    updateDb((db:any)=>{
-      const keep=(db.contacts||[]).find((c:any)=>c.id===keepId); if(!keep)return;
-      (db.contacts||[]).filter((c:any)=>removeIds.includes(c.id)).forEach((loser:any)=>{
-        if(!keep.notes)keep.notes=[]; if(!keep.history)keep.history=[];
-        keep.notes=[...keep.notes,...(loser.notes||[])];
-        keep.history=[...keep.history,...(loser.history||[])];
-        if((PRIORITY[loser.status]||0)>(PRIORITY[keep.status]||0)) keep.status=loser.status;
+    setContacts(prev=>{
+      const keep=prev.find((c:any)=>c.id===keepId); if(!keep) return prev;
+      const merged={...keep,notes:[...(keep.notes||[])],history:[...(keep.history||[])]};
+      prev.filter((c:any)=>removeIds.includes(c.id)).forEach((loser:any)=>{
+        merged.notes=[...merged.notes,...(loser.notes||[])];
+        merged.history=[...merged.history,...(loser.history||[])];
+        if((PRIORITY[loser.status]||0)>(PRIORITY[merged.status]||0)) merged.status=loser.status;
       });
-      db.contacts=(db.contacts||[]).filter((c:any)=>!removeIds.includes(c.id));
+      const n=prev.filter((c:any)=>!removeIds.includes(c.id));
+      const idx=n.findIndex((c:any)=>c.id===keepId); if(idx>=0) n[idx]=merged;
+      saveLocalContacts(n); upsertContact(merged); deleteRemoteContacts(removeIds); return n;
     });
     showToast("Contacts merged.");
     setDedupGroups(prev=>{ const next=[...prev]; next.splice(dedupIdx,1); return next; });
     setDedupIdx(i=>Math.min(i,dedupGroups.length-2));
-  },[updateDb,showToast,dedupIdx,dedupGroups.length]);
+  },[showToast,dedupIdx,dedupGroups.length]);
 
 
   const addMember = () => {
@@ -858,67 +912,66 @@ export default function App() {
   };
 
   const deleteSelectedContacts = () => {
-    const toDelete=(db.contacts||[]).filter((c:any)=>selectedContactIds.has(c.id));
+    const ids=selectedContactIds;
+    const toDelete=contacts.filter((c:any)=>ids.has(c.id));
     if(toDelete.length) pushDeletionHistory(`${toDelete.length} contacts`,toDelete);
-    updateDb((db:any)=>{ db.contacts=(db.contacts||[]).filter((c:any)=>!selectedContactIds.has(c.id)); });
+    setContacts(prev=>{ const n=prev.filter((c:any)=>!ids.has(c.id)); saveLocalContacts(n); deleteRemoteContacts([...ids]); return n; });
     setSelectedContactIds(new Set()); setContactSelectMode(false);
   };
 
   const deleteAllContacts = () => {
-    const all=db.contacts||[];
+    const all=contacts;
     if(all.length) pushDeletionHistory(`All ${all.length} contacts`,all);
-    updateDb((db:any)=>{ db.contacts=[]; });
+    const ids=all.map((c:any)=>c.id);
+    setContacts([]); saveLocalContacts([]); deleteRemoteContacts(ids);
     setSelectedContactIds(new Set()); setContactSelectMode(false);
   };
 
   const undoDelete = (hid:string) => {
     const entry=deletionHistory.find(h=>h.hid===hid);
     if(!entry) return;
-    updateDb((db:any)=>{
-      const existing:any[]=db.contacts||[];
-      const ids=new Set(existing.map((c:any)=>c.id));
-      db.contacts=[...existing,...entry.contacts.filter((c:any)=>!ids.has(c.id))];
+    setContacts(prev=>{
+      const existing=new Set(prev.map((c:any)=>c.id));
+      const toAdd=entry.contacts.filter((c:any)=>!existing.has(c.id));
+      const n=[...prev,...toAdd]; saveLocalContacts(n); upsertContacts(toAdd); return n;
     });
     setDeletionHistory(h=>h.filter(e=>e.hid!==hid));
     showToast("Restored "+entry.label);
   };
 
   const updateContactSalesAgent = useCallback((contactId:string, salesAgent:string) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.salesAgent=salesAgent; });
-  },[]);
+    mutateContact(contactId, c=>{ c.salesAgent=salesAgent; });
+  },[mutateContact]);
 
   const updateContactLeadStatusCb = useCallback((contactId:string, leadStatus:string|null, author?:string) => {
-    updateDb((db:any)=>{
-      const c=(db.contacts||[]).find((c:any)=>c.id===contactId);
-      if(c){
-        if(c.leadStatus!==leadStatus){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"lead",from:c.leadStatus||"none",to:leadStatus||"none",by:author||"",timestamp:new Date().toISOString()}); }
-        c.leadStatus=leadStatus; c.lastTouched=todayKey();
-      }
+    mutateContact(contactId, c=>{
+      if(c.leadStatus!==leadStatus){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"lead",from:c.leadStatus||"none",to:leadStatus||"none",by:author||"",timestamp:new Date().toISOString()}); }
+      c.leadStatus=leadStatus; c.lastTouched=todayKey();
     });
-  },[]);
+  },[mutateContact]);
 
   const updateContactStatus = useCallback((contactId:string, status:string, author?:string) => {
-    updateDb((db:any)=>{
-      const c=(db.contacts||[]).find((c:any)=>c.id===contactId);
-      if(c){
-        if(c.status!==status){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:new Date().toISOString()}); }
-        c.status=status; c.lastTouched=todayKey();
-      }
+    mutateContact(contactId, c=>{
+      if(c.status!==status){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:new Date().toISOString()}); }
+      c.status=status; c.lastTouched=todayKey();
     });
-  },[]);
+  },[mutateContact]);
 
   const updateContactCallbackDate = useCallback((contactId:string, callbackDate:string) => {
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((c:any)=>c.id===contactId); if(c) c.callbackDate=callbackDate; });
-  },[]);
+    mutateContact(contactId, c=>{ c.callbackDate=callbackDate; });
+  },[mutateContact]);
 
   const addContactNote = useCallback((contactId:string, text:string, author:string) => {
     if(!text.trim()) return;
-    updateDb((db:any)=>{ const c=(db.contacts||[]).find((x:any)=>x.id===contactId); if(!c) return; if(!c.notes) c.notes=[]; c.notes.unshift({id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}); c.lastTouched=todayKey(); });
-  },[]);
+    mutateContact(contactId, c=>{ if(!c.notes)c.notes=[]; c.notes.unshift({id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}); c.lastTouched=todayKey(); });
+  },[mutateContact]);
 
   const bulkUpdateContactStatus = useCallback((status:string, ids:Set<string>) => {
-    const size=ids.size;
-    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(ids.has(c.id)){ if(c.status!==status){if(!c.history)c.history=[];c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:"Bulk",timestamp:new Date().toISOString()});} c.status=status; c.lastTouched=todayKey(); } }); });
+    const size=ids.size; const ts=new Date().toISOString(); const today=todayKey();
+    setContacts(prev=>{
+      const next=prev.map((c:any)=>{ if(!ids.has(c.id)) return c; const h={id:uid(),type:"status",from:c.status,to:status,by:"Bulk",timestamp:ts}; return {...c,status,lastTouched:today,history:[h,...(c.history||[])]}; });
+      saveLocalContacts(next); upsertContacts(next.filter((c:any)=>ids.has(c.id))); return next;
+    });
     setContactSelectMode(false); setSelectedContactIds(new Set());
     showToast(`Updated ${size} contact${size!==1?"s":""} to ${CONTACT_STATUS_META[status as keyof typeof CONTACT_STATUS_META]?.label||status}.`);
   },[showToast]);
@@ -926,10 +979,8 @@ export default function App() {
   const addContactManually = useCallback(() => {
     const f=addContactForm;
     if(!f.name.trim()&&!f.phone.trim()){showToast("Name or phone is required.");return;}
-    updateDb((db:any)=>{
-      if(!db.contacts) db.contacts=[];
-      db.contacts.push({id:uid(),name:f.name.trim(),phone:f.phone.trim(),phone2:"",storeType:"",company:"",storeId:"",renId:"",agentName:"",date:todayKey(),campaign:f.campaign.trim(),remarks:f.remarks.trim(),status:f.status||"contacted",leadStatus:null,salesAgent:f.salesAgent||"",lastTouched:todayKey(),callbackDate:"",notes:[]});
-    });
+    const c={id:uid(),name:f.name.trim(),phone:f.phone.trim(),phone2:"",storeType:"",company:"",storeId:"",renId:"",agentName:"",date:todayKey(),campaign:f.campaign.trim(),remarks:f.remarks.trim(),status:f.status||"contacted",leadStatus:null,salesAgent:f.salesAgent||"",lastTouched:todayKey(),callbackDate:"",notes:[],history:[]};
+    setContacts(prev=>{ const n=[...prev,c]; saveLocalContacts(n); upsertContact(c); return n; });
     showToast(`Contact "${f.name||f.phone}" added.`);
     setShowAddContactModal(false);
     setAddContactForm({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
@@ -942,13 +993,13 @@ export default function App() {
   },[updateContactStatus]);
 
   const deleteContactCb = useCallback((contactId:string) => {
-    updateDb((db:any)=>{
-      const c=(db.contacts||[]).find((x:any)=>x.id===contactId);
+    setContacts(prev=>{
+      const c=prev.find((x:any)=>x.id===contactId);
       if(c) setDeletionHistory(h=>[{hid:crypto.randomUUID(),label:c.name||c.phone||"Contact",contacts:[c],timestamp:Date.now()},...h.slice(0,19)]);
-      db.contacts=(db.contacts||[]).filter((x:any)=>x.id!==contactId);
+      const n=prev.filter((x:any)=>x.id!==contactId); saveLocalContacts(n); deleteRemoteContact(contactId); return n;
     });
     setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
-  },[updateDb]);
+  },[]);
 
   const handleContactToggle = useCallback((id:string|null)=>setOpenContactId(prev=>prev===id?null:id),[]);
   const handleContactSelect = useCallback((id:string)=>setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }),[]);
@@ -961,7 +1012,7 @@ export default function App() {
   },[]);
 
   const assignContactsRandomly = () => {
-    const pool = [...(db.contacts||[])].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
+    const pool = [...contacts].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
     for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
     const assignments: Record<string,string> = {};
     if(assignMode==="even"){
@@ -982,9 +1033,9 @@ export default function App() {
     }
     const total=Object.keys(assignments).length;
     if(!total){showToast("No contacts to assign — check pool size or counts.");return;}
-    const snapshot=(db.contacts||[]).filter((c:any)=>assignments[c.id]!==undefined).map((c:any)=>({id:c.id,prevAgent:c.salesAgent??null}));
+    const snapshot=contacts.filter((c:any)=>assignments[c.id]!==undefined).map((c:any)=>({id:c.id,prevAgent:c.salesAgent??null}));
     setLastDistributionSnapshot(snapshot);
-    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(assignments[c.id]) c.salesAgent=assignments[c.id]; }); });
+    setContacts(prev=>{ const next=prev.map((c:any)=>assignments[c.id]?{...c,salesAgent:assignments[c.id]}:c); saveLocalContacts(next); upsertContacts(next.filter((c:any)=>assignments[c.id]!==undefined)); return next; });
     const agentCount=new Set(Object.values(assignments)).size;
     showToast(`Assigned ${total} contact${total!==1?"s":""} across ${agentCount} agent${agentCount!==1?"s":""}.`);
     setShowAssignModal(false); setAssignCounts({}); setAssignSelectedMembers(new Set());
@@ -995,7 +1046,7 @@ export default function App() {
     const snap=lastDistributionSnapshot;
     const map:Record<string,string|null>={};
     snap.forEach(s=>map[s.id]=s.prevAgent);
-    updateDb((db:any)=>{ (db.contacts||[]).forEach((c:any)=>{ if(c.id in map) c.salesAgent=map[c.id]; }); });
+    setContacts(prev=>{ const next=prev.map((c:any)=>c.id in map?{...c,salesAgent:map[c.id]}:c); saveLocalContacts(next); upsertContacts(next.filter((c:any)=>c.id in map)); return next; });
     setLastDistributionSnapshot(null); showToast("Distribution undone.");
   };
 
@@ -1077,32 +1128,17 @@ export default function App() {
       if (!imported.length) { showToast("No qualifying rows found (need Answered/Callback/Interested)."); setImporting(false); return; }
 
       // Compute cross-campaign duplicates from current snapshot before mutating
-      const existingPhones=new Set((db.contacts||[]).filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
+      const existingPhones=new Set(contacts.filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
       const crossDups=imported.filter((c:any)=>c.phone&&existingPhones.has(stripPhone(c.phone))).length;
 
-      setDb((prev:any) => {
-        const allContacts: any[] = prev.contacts || [];
-        const otherCampaign = allContacts.filter((c:any) => c.campaign !== campaignName);
-        const sameCampaign  = allContacts.filter((c:any) => c.campaign === campaignName);
-        const existingMap: any = {};
-        sameCampaign.forEach((c:any) => {
-          const k = c.phone ? stripPhone(c.phone) : (c.name||"").toLowerCase().trim();
-          if (k) existingMap[k] = c;
-        });
-        imported.forEach((c:any) => {
-          const k = c.phone ? stripPhone(c.phone) : (c.name||"").toLowerCase().trim();
-          const ex = existingMap[k];
-          if (!ex || (PRIORITY[c.status]||0) >= (PRIORITY[ex.status]||0)) {
-            existingMap[k] = { ...c, leadStatus: ex?.leadStatus||null };
-          }
-        });
-        const next = {...prev, contacts: [...otherCampaign, ...Object.values(existingMap)]};
-        saveLocal(next);
-        pendingSaveRef.current = {...next, __writerId: writerIdRef.current};
-        retryCountRef.current = 0;
-        if(saveTimerRef.current) clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) attemptSave(pendingSaveRef.current); }, 1200);
-        return next;
+      setContacts(prev=>{
+        const otherCampaign=prev.filter((c:any)=>c.campaign!==campaignName);
+        const sameCampaign=prev.filter((c:any)=>c.campaign===campaignName);
+        const existingMap:any={};
+        sameCampaign.forEach((c:any)=>{ const k=c.phone?stripPhone(c.phone):(c.name||"").toLowerCase().trim(); if(k) existingMap[k]=c; });
+        imported.forEach((c:any)=>{ const k=c.phone?stripPhone(c.phone):(c.name||"").toLowerCase().trim(); const ex=existingMap[k]; if(!ex||(PRIORITY[c.status]||0)>=(PRIORITY[ex.status]||0)) existingMap[k]={...c,leadStatus:ex?.leadStatus||null}; });
+        const next=[...otherCampaign,...Object.values(existingMap)];
+        saveLocalContacts(next); upsertContacts(Object.values(existingMap)); return next;
       });
 
       setContactLimit(100);
@@ -2640,7 +2676,7 @@ export default function App() {
           </div>
         )}
         {showAssignModal&&(()=>{
-          const pool=contacts.filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
+          const pool=allContacts.filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
           const selectedList=(db.members||[]).filter((m:any)=>assignSelectedMembers.has(m.id));
           const customTotal=Object.entries(assignCounts).filter(([id])=>assignSelectedMembers.has(id)).reduce((s,[,v])=>s+(parseInt(v)||0),0);
           const perMember=selectedList.length>0?Math.ceil(pool.length/selectedList.length):0;
