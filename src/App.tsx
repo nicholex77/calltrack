@@ -247,9 +247,11 @@ function TargetBar({ label, value, target }: { label:string; value:number; targe
 
 // ── Contact page constants (module-level so they're never recreated) ────────
 const CONTACT_STATUS_META:Record<string,{label:string,color:string,bg:string}> = {
-  interested:{label:"Interested",color:"#059669",bg:"#f0fdf4"},
-  callback:  {label:"Callback",  color:"#d97706",bg:"#fffbeb"},
-  contacted: {label:"Contacted", color:"#2563eb",bg:"#eff6ff"},
+  interested:   {label:"Interested",  color:"#059669",bg:"#f0fdf4"},
+  callback:     {label:"Callback",    color:"#d97706",bg:"#fffbeb"},
+  contacted:    {label:"Contacted",   color:"#2563eb",bg:"#eff6ff"},
+  not_answered: {label:"Not Answered",color:"#6b7280",bg:"#f3f4f6"},
+  hangup:       {label:"Hung Up",     color:"#ef4444",bg:"#fff1f2"},
 };
 const CONTACT_LEAD_META:Record<string,{label:string,color:string,bg:string}> = {
   hot: {label:"Hot",  color:"#ef4444",bg:"#fff1f2"},
@@ -334,8 +336,15 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:14,paddingTop:14,borderTop:"1.5px solid #e8efff"}}>
             <div>
               <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:6}}>Call Status</div>
-              <div style={{display:"flex",gap:6}}>
+              <div style={{display:"flex",gap:6,marginBottom:5}}>
                 {(["contacted","callback","interested"] as const).map(st=>{
+                  const stm=CONTACT_STATUS_META[st];
+                  const active=c.status===st;
+                  return <button key={st} onClick={()=>onStatus(c.id,st,authorName)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;
+                })}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {(["not_answered","hangup"] as const).map(st=>{
                   const stm=CONTACT_STATUS_META[st];
                   const active=c.status===st;
                   return <button key={st} onClick={()=>onStatus(c.id,st,authorName)} style={{flex:1,padding:"6px 0",borderRadius:8,border:`1.5px solid ${active?stm.color:"#e5e5e5"}`,background:active?stm.bg:"#fff",color:active?stm.color:"#aaa",fontSize:10,fontWeight:700,cursor:"pointer",fontFamily:"inherit",transition:"all .12s"}}>{stm.label}</button>;
@@ -583,6 +592,7 @@ export default function App() {
   const [newTaskType, setNewTaskType] = useState("telesales");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskMemberIds, setNewTaskMemberIds] = useState<string[]>([]);
+  const [newTaskLinkedCampaign, setNewTaskLinkedCampaign] = useState("");
   const [memberInput, setMemberInput] = useState("");
   const [campaignInput, setCampaignInput] = useState("");
   const [campaignTargetId, setCampaignTargetId] = useState<string|null>(null);
@@ -784,6 +794,25 @@ export default function App() {
   },[allContacts,contactFilters,contactSearch,contactSort]);
 
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
+  // Auto-computed stats for telesales tasks linked to a campaign
+  const linkedTaskStats = useMemo(()=>{
+    const today=todayKey();
+    const result:Record<string,Record<string,{total:number,answered:number,notAnswered:number,interested:number}>>={};
+    (db.days?.[currentDate]?.tasks||[]).filter((t:any)=>t.linkedCampaign).forEach((t:any)=>{
+      result[t.id]={};
+      (t.assignedMembers||[]).forEach((m:any)=>{
+        const mine=contacts.filter((c:any)=>c.campaign===t.linkedCampaign&&c.salesAgent===m.name&&c.lastTouched===today);
+        result[t.id][m.id]={
+          total:mine.length,
+          answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,
+          notAnswered:mine.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length,
+          interested:mine.filter((c:any)=>c.status==="interested").length,
+        };
+      });
+    });
+    return result;
+  },[contacts,db.days,currentDate]);
+
   const pipelineBase = useMemo(()=>{
     const q = pipelineSearch.trim().toLowerCase();
     return allContacts.filter((c:any)=>{
@@ -860,11 +889,11 @@ export default function App() {
     if(newTaskMemberIds.length===0){ showToast("Assign at least one member"); return; }
     const assigned:any[]=members.filter((m:any)=>newTaskMemberIds.includes(m.id));
     let task:any;
-    if(newTaskType==="telesales") task={id:uid(),type:"telesales",title:newTaskTitle.trim(),assignedMembers:assigned.map((m:any)=>({id:m.id,name:m.name,colorIdx:m.colorIdx})),memberStats:Object.fromEntries(assigned.map((m:any)=>[m.id,{total:0,answered:0,notAnswered:0,interested:0}])),remarks:""};
+    if(newTaskType==="telesales") task={id:uid(),type:"telesales",title:newTaskTitle.trim(),linkedCampaign:newTaskLinkedCampaign||null,assignedMembers:assigned.map((m:any)=>({id:m.id,name:m.name,colorIdx:m.colorIdx})),memberStats:Object.fromEntries(assigned.map((m:any)=>[m.id,{total:0,answered:0,notAnswered:0,interested:0}])),remarks:""};
     else if(newTaskType==="whatsapp") task={id:uid(),type:"whatsapp",title:newTaskTitle.trim(),assignedMembers:assigned.map((m:any)=>({id:m.id,name:m.name,colorIdx:m.colorIdx})),notes:"",campaigns:[]};
     else task={id:uid(),type:"general",title:newTaskTitle.trim(),assignedMembers:assigned.map((m:any)=>({id:m.id,name:m.name,colorIdx:m.colorIdx})),memberDone:Object.fromEntries(assigned.map((m:any)=>[m.id,false])),notes:""};
     updateDb((db:any)=>{ ensureDay(db,currentDate); db.days[currentDate].tasks.push(task); });
-    setSelectedTaskId(task.id); setModal(null); setNewTaskTitle(""); setNewTaskMemberIds([]);
+    setSelectedTaskId(task.id); setModal(null); setNewTaskTitle(""); setNewTaskMemberIds([]); setNewTaskLinkedCampaign("");
     showToast("Task created");
   };
 
@@ -1511,17 +1540,19 @@ export default function App() {
 
   const renderTelesales = (task:any) => {
     const assigned=task.assignedMembers||[];
-    const isSheetSync=task.id.startsWith("sheet-sync-");
-    const totals=(assigned as any[]).reduce((a:any,m:any)=>{ const s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0}; return {total:a.total+s.total,answered:a.answered+s.answered,notAnswered:a.notAnswered+s.notAnswered,interested:a.interested+s.interested}; },{total:0,answered:0,notAnswered:0,interested:0});
+    const isLinked=!!task.linkedCampaign;
+    const isSheetSync=task.id.startsWith("sheet-sync-")||isLinked;
+    const getStats=(memberId:string)=>isLinked?(linkedTaskStats[task.id]?.[memberId]||{total:0,answered:0,notAnswered:0,interested:0}):(task.memberStats?.[memberId]||{total:0,answered:0,notAnswered:0,interested:0});
+    const totals=(assigned as any[]).reduce((a:any,m:any)=>{ const s=getStats(m.id); return {total:a.total+s.total,answered:a.answered+s.answered,notAnswered:a.notAnswered+s.notAnswered,interested:a.interested+s.interested}; },{total:0,answered:0,notAnswered:0,interested:0});
     const aRate=totals.total>0?Math.round(totals.answered/totals.total*100):0;
     const cRate=totals.answered>0?Math.round(totals.interested/totals.answered*100):0;
     return (
-      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div style={{flex:1,minWidth:0}}>{isSheetSync?<div style={{fontWeight:800,fontSize:16,letterSpacing:-.3,marginBottom:6}}>{task.title}</div>:<input className="title-input" defaultValue={task.title} onBlur={e=>updateTaskTitle(task.id,e.target.value)} placeholder="Task title..."/>}<div style={{marginTop:6,display:"flex",alignItems:"center",gap:8}}><MemberAvatarRow assignedMembers={assigned}/>{isSheetSync&&<span style={{fontSize:10,fontWeight:700,color:"#059669",background:"#ecfdf5",padding:"2px 8px",borderRadius:20,border:"1px solid #a7f3d0"}}>Synced from Sheet</span>}</div></div> <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Ans: {totals.answered}</span> <span className="stat-badge" style={{background:"#fff1f2",color:"#be123c"}}>N/A: {totals.notAnswered}</span> <span className="stat-badge" style={{background:"#fffbeb",color:"#b45309"}}>Int: {totals.interested}</span> </div> <div style={{display:"flex",gap:6,alignItems:"center"}}><button className="ghost-btn" style={{padding:"5px 10px",fontSize:11}} onClick={()=>copyTaskToDate(task,addDays(currentDate,1))}>Reuse Tomorrow</button>{task.saved?<button className="saved-btn" onClick={()=>unsaveTask(task.id)}>Saved</button>:<button className="save-btn" onClick={()=>saveTask(task.id)}>Save</button>}</div> </div> </div> </div> <div style={{padding:20}}> {(callTarget>0||intTarget>0)&&(
+      <div className="card fade-up"> <div style={{padding:"18px 20px",borderBottom:"1px solid #f0f0f0"}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:10}}> <div style={{flex:1,minWidth:0}}>{isSheetSync?<div style={{fontWeight:800,fontSize:16,letterSpacing:-.3,marginBottom:6}}>{task.title}</div>:<input className="title-input" defaultValue={task.title} onBlur={e=>updateTaskTitle(task.id,e.target.value)} placeholder="Task title..."/>}<div style={{marginTop:6,display:"flex",alignItems:"center",gap:8}}><MemberAvatarRow assignedMembers={assigned}/>{isLinked&&<span style={{fontSize:10,fontWeight:700,color:"#7c3aed",background:"#f5f3ff",padding:"2px 8px",borderRadius:20,border:"1px solid #ddd6fe"}}>📊 {task.linkedCampaign}</span>}{!isLinked&&task.id.startsWith("sheet-sync-")&&<span style={{fontSize:10,fontWeight:700,color:"#059669",background:"#ecfdf5",padding:"2px 8px",borderRadius:20,border:"1px solid #a7f3d0"}}>Synced from Sheet</span>}</div></div> <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,flexShrink:0}}> <div style={{display:"flex",gap:5,flexWrap:"wrap"}}> <span className="stat-badge" style={{background:"#f0fdf4",color:"#15803d"}}>Ans: {totals.answered}</span> <span className="stat-badge" style={{background:"#fff1f2",color:"#be123c"}}>N/A: {totals.notAnswered}</span> <span className="stat-badge" style={{background:"#fffbeb",color:"#b45309"}}>Int: {totals.interested}</span> </div> <div style={{display:"flex",gap:6,alignItems:"center"}}><button className="ghost-btn" style={{padding:"5px 10px",fontSize:11}} onClick={()=>copyTaskToDate(task,addDays(currentDate,1))}>Reuse Tomorrow</button>{task.saved?<button className="saved-btn" onClick={()=>unsaveTask(task.id)}>Saved</button>:<button className="save-btn" onClick={()=>saveTask(task.id)}>Save</button>}</div> </div> </div> </div> <div style={{padding:20}}> {(callTarget>0||intTarget>0)&&(
             <div style={{background:"#fafafa",border:"1.5px solid #ebebeb",borderRadius:14,padding:16,marginBottom:16}}> <div style={{fontWeight:700,fontSize:11,color:"#888",textTransform:"uppercase",letterSpacing:.8,marginBottom:12}}>Team Target Progress</div> {callTarget>0&&<TargetBar label="Total Calls" value={totals.total} target={callTarget*assigned.length}/>}
               {intTarget>0&&<TargetBar label="Interested" value={totals.interested} target={intTarget*assigned.length}/>}
             </div> )}
           {assigned.map((m:any)=>{
-            const s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0};
+            const s=getStats(m.id);
             const mARate=s.total>0?Math.round(s.answered/s.total*100):0;
             const mCRate=s.answered>0?Math.round(s.interested/s.answered*100):0;
             return (
@@ -2569,7 +2600,17 @@ export default function App() {
                       <div key={m.id} onClick={()=>toggleMemberSelection(m.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:10,border:`1.5px solid ${sel?"#1a56db":"#e5e5e5"}`,background:sel?"#eff6ff":"#fff",cursor:"pointer",transition:"all .12s"}}> <div style={{width:28,height:28,borderRadius:8,background:AVATAR_COLORS[m.colorIdx][0],display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"#fff"}}>{initials(m.name)}</div> <span style={{flex:1,fontWeight:600,fontSize:13}}>{m.name}</span> <div style={{width:16,height:16,borderRadius:4,background:sel?"#1a56db":"transparent",border:`1.5px solid ${sel?"#1a56db":"#ccc"}`,display:"flex",alignItems:"center",justifyContent:"center"}}> {sel&&<svg width="8" height="8" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                         </div> </div> );})}
                   </div> )}
-              </div> <div style={{marginBottom:20}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Title</div> <input ref={modalRef} className="text-input" value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder={newTaskType==="telesales"?"e.g. Morning Call Session":newTaskType==="whatsapp"?"e.g. April Follow-up":"e.g. Prepare weekly report"}/> </div> <div style={{display:"flex",gap:10}}> <button className="ghost-btn" style={{flex:1}} onClick={()=>{setModal(null);setNewTaskTitle("");}}>Cancel</button> <button className="primary-btn" style={{flex:1}} onClick={addTask} disabled={!newTaskTitle.trim()||newTaskMemberIds.length===0||members.length===0}>Create Task</button> </div> </div> </div> )}
+              </div> <div style={{marginBottom:20}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Title</div> <input ref={modalRef} className="text-input" value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder={newTaskType==="telesales"?"e.g. Morning Call Session":newTaskType==="whatsapp"?"e.g. April Follow-up":"e.g. Prepare weekly report"}/> </div>
+              {newTaskType==="telesales"&&contactCampaigns.length>0&&(
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:4}}>Link to Campaign <span style={{color:"#999",fontWeight:400}}>(optional — auto-computes stats from contacts)</span></div>
+                  <select value={newTaskLinkedCampaign} onChange={e=>setNewTaskLinkedCampaign(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:10,border:"1.5px solid #444",background:"#1a1a1a",color:"#fff",fontFamily:"inherit",fontSize:13,outline:"none"}}>
+                    <option value="">No link — manual entry</option>
+                    {contactCampaigns.map((c:string)=><option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              )}
+              <div style={{display:"flex",gap:10}}> <button className="ghost-btn" style={{flex:1}} onClick={()=>{setModal(null);setNewTaskTitle("");}}>Cancel</button> <button className="primary-btn" style={{flex:1}} onClick={addTask} disabled={!newTaskTitle.trim()||newTaskMemberIds.length===0||members.length===0}>Create Task</button> </div> </div> </div> )}
         {showDedupModal&&dedupGroups.length>0&&(()=>{
           const group=dedupGroups[dedupIdx]||[];
           const PRIORITY:any={interested:3,callback:2,contacted:1};
