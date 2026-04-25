@@ -37,9 +37,10 @@ const STORAGE_KEY = "calltrack_v5";
 // localStorage as fast local cache
 const loadLocal  = () => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}"); } catch { return {}; } };
 const saveLocal  = (data:any) => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch {} };
-// Supabase read/write — single row with id='main'
-const loadRemote = async () => { const { data } = await supabase.from("calltrack").select("data").eq("id","main").single(); return data?.data||{}; };
-const saveRemote = async (data:any): Promise<void> => { const {error} = await supabase.from("calltrack").upsert({id:"main",data,updated_at:new Date().toISOString()}); if(error) throw error; };
+const DB_ROW_ID = import.meta.env.VITE_DB_ROW_ID as string || "main";
+// Supabase read/write — single row with id=DB_ROW_ID
+const loadRemote = async () => { const { data } = await supabase.from("calltrack").select("data").eq("id",DB_ROW_ID).single(); return data?.data||{}; };
+const saveRemote = async (data:any): Promise<void> => { const {error} = await supabase.from("calltrack").upsert({id:DB_ROW_ID,data,updated_at:new Date().toISOString()}); if(error) throw error; };
 
 const TASK_TYPES = {
   telesales: { label:"Telesales Call", color:"#2563eb", bg:"#eff6ff" },
