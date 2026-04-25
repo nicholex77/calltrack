@@ -196,6 +196,8 @@ textarea,input,select{font-family:inherit;}
 .note-item{background:#fff;border:1px solid #e8e8e8;border-radius:8px;padding:7px 10px;}
 .note-meta{font-size:10px;color:#aaa;display:flex;justify-content:space-between;margin-bottom:2px;}
 .note-text{font-size:12px;color:#333;line-height:1.5;word-break:break-word;}
+@keyframes slideInRight{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.swipe-strip{position:absolute;right:0;top:0;bottom:0;width:76px;display:flex;flex-direction:column;gap:3px;padding:5px 4px;border-radius:0 10px 10px 0;animation:slideInRight .15s ease;}
 .history-feed{display:flex;flex-direction:column;gap:3px;max-height:120px;overflow-y:auto;}
 .history-item{border-left:2px solid #e5e5e5;padding:3px 0 3px 9px;}
 .history-meta{font-size:10px;color:#aaa;margin-bottom:1px;}
@@ -236,11 +238,15 @@ const CONTACT_LEAD_META:Record<string,{label:string,color:string,bg:string}> = {
 };
 
 // ── Memoised row — only re-renders when its own props change ─────────────────
-const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMode,isManager,members,onToggle,onSelect,onSalesAgent,onLeadStatus,onStatus,onCallbackDate,onAddNote,authorName,onDelete,onToast}:any){
+const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMode,isManager,members,onToggle,onSelect,onSalesAgent,onLeadStatus,onStatus,onCallbackDate,onAddNote,authorName,onDelete,onToast,waTemplates}:any){
   const sm=CONTACT_STATUS_META[c.status]||CONTACT_STATUS_META.contacted;
   const lm=c.leadStatus?CONTACT_LEAD_META[c.leadStatus]:null;
   const st=staleness(c.lastTouched||"");
   const [noteText,setNoteText]=React.useState("");
+  const [swipeOpen,setSwipeOpen]=React.useState(false);
+  const [showTpl,setShowTpl]=React.useState(false);
+  const swipeTouchStart=React.useRef<{x:number,y:number}|null>(null);
+  const didSwipe=React.useRef(false);
 
   const fieldRow=(label:string,value:string)=>!value?null:(
     <div style={{padding:"8px 0",borderBottom:"1px solid #f0f0f0"}}>
@@ -255,7 +261,13 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
   return (
     <div style={{background:"#fff",border:`1.5px solid ${isOpen?"#1a56db":selectMode&&isSelected?"#1a56db":"#ebebeb"}`,borderRadius:12,overflow:"hidden",transition:"border-color .15s"}}>
       {/* Header */}
-      <div onClick={()=>selectMode?onSelect(c.id):onToggle(c.id)} style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",background:isOpen?"#f8faff":"#fff",transition:"background .12s"}}>
+      <div
+        style={{position:"relative",overflow:"hidden"}}
+        onTouchStart={e=>{const t=e.touches[0];swipeTouchStart.current={x:t.clientX,y:t.clientY};didSwipe.current=false;}}
+        onTouchMove={e=>{if(!swipeTouchStart.current)return;const dx=e.touches[0].clientX-swipeTouchStart.current.x;const dy=e.touches[0].clientY-swipeTouchStart.current.y;if(Math.abs(dx)>Math.abs(dy)){if(dx<-20){didSwipe.current=true;setSwipeOpen(true);}else if(dx>20){setSwipeOpen(false);}}}}
+        onTouchEnd={()=>{swipeTouchStart.current=null;}}
+      >
+      <div onClick={()=>{if(didSwipe.current){didSwipe.current=false;return;}if(swipeOpen){setSwipeOpen(false);return;}selectMode?onSelect(c.id):onToggle(c.id);}} style={{padding:"12px 16px",display:"flex",alignItems:"center",gap:12,cursor:"pointer",background:isOpen?"#f8faff":"#fff",transition:"transform .15s,background .12s",transform:swipeOpen?"translateX(-76px)":"none"}}>
         {selectMode&&(
           <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${isSelected?"#1a56db":"#ccc"}`,background:isSelected?"#1a56db":"#fff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
             {isSelected&&<svg width="10" height="10" viewBox="0 0 12 12" fill="none"><polyline points="2,6 5,9 10,3" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -275,6 +287,15 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
           {!selectMode&&<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isOpen?"#1a56db":"#bbb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{transform:isOpen?"rotate(90deg)":"rotate(0deg)",transition:"transform .2s",flexShrink:0}}><polyline points="9 18 15 12 9 6"/></svg>}
         </div>
       </div>
+      {swipeOpen&&(
+        <div className="swipe-strip" style={{background:"#1a56db"}}>
+          {c.phone&&<a href={`tel:${c.phone}`} onClick={e=>e.stopPropagation()} style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",borderRadius:7,background:"rgba(255,255,255,.18)",color:"#fff",fontSize:18,textDecoration:"none"}}>📞</a>}
+          <button onClick={e=>{e.stopPropagation();onStatus(c.id,"interested",authorName);setSwipeOpen(false);}} style={{flex:1,border:"none",borderRadius:7,background:"#059669",color:"#fff",fontFamily:"inherit",fontSize:9,fontWeight:800,cursor:"pointer"}}>INT</button>
+          <button onClick={e=>{e.stopPropagation();onStatus(c.id,"callback",authorName);setSwipeOpen(false);}} style={{flex:1,border:"none",borderRadius:7,background:"#d97706",color:"#fff",fontFamily:"inherit",fontSize:9,fontWeight:800,cursor:"pointer"}}>CB</button>
+          <button onClick={e=>{e.stopPropagation();setSwipeOpen(false);}} style={{flex:1,border:"none",borderRadius:7,background:"rgba(255,255,255,.15)",color:"#fff",fontFamily:"inherit",fontSize:13,fontWeight:700,cursor:"pointer"}}>✕</button>
+        </div>
+      )}
+      </div>{/* end swipe wrapper */}
       {/* Expanded detail */}
       {isOpen&&(
         <div onClick={e=>e.stopPropagation()} style={{borderTop:"1.5px solid #e8efff",padding:"16px 16px 14px",background:"#f8faff",animation:"fadeUp .15s ease both"}}>
@@ -344,6 +365,29 @@ const ContactRow = React.memo(function ContactRow({c,isOpen,isSelected,selectMod
                   );
                 })}
               </div>
+            </div>
+          )}
+          {/* WA Template picker */}
+          {(waTemplates||[]).length>0&&(
+            <div style={{marginTop:12,paddingTop:12,borderTop:"1.5px solid #e8efff"}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:showTpl?8:0}}>
+                <div style={{fontSize:10,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5}}>WA Templates</div>
+                <button onClick={()=>setShowTpl(v=>!v)} style={{fontSize:11,fontWeight:700,color:"#059669",background:"#ecfdf5",border:"1.5px solid #a7f3d0",borderRadius:7,padding:"2px 10px",cursor:"pointer",fontFamily:"inherit"}}>{showTpl?"Hide":"Use Template"}</button>
+              </div>
+              {showTpl&&(
+                <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:6}}>
+                  {(waTemplates as any[]).map((t:any)=>(
+                    <button key={t.id} onClick={()=>{
+                      const msg=t.body.replace(/\{name\}/gi,c.name||"").replace(/\{phone\}/gi,c.phone||"").replace(/\{company\}/gi,c.company||"");
+                      safeCopy(msg);onToast(`"${t.name}" copied`);setShowTpl(false);
+                    }} style={{textAlign:"left",padding:"8px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",fontFamily:"inherit",cursor:"pointer",fontSize:12,color:"#333",transition:"background .1s"}}
+                    onMouseEnter={e=>(e.currentTarget.style.background="#f0fdf4")} onMouseLeave={e=>(e.currentTarget.style.background="#fff")}>
+                      <div style={{fontWeight:700,color:"#059669",marginBottom:2}}>{t.name}</div>
+                      <div style={{color:"#888",fontSize:11,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{t.body.slice(0,80)}{t.body.length>80?"…":""}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {/* Notes feed */}
@@ -545,6 +589,11 @@ export default function App() {
   const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns">("agents");
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
+  const [showDedupModal, setShowDedupModal]       = useState(false);
+  const [dedupGroups, setDedupGroups]             = useState<any[][]>([]);
+  const [dedupIdx, setDedupIdx]                   = useState(0);
+  const [newTplName, setNewTplName]               = useState("");
+  const [newTplBody, setNewTplBody]               = useState("");
   const [showAssignModal, setShowAssignModal]     = useState(false);
   const [assignCounts, setAssignCounts]           = useState<Record<string,string>>({});
   const [assignFromUnassigned, setAssignFromUnassigned] = useState(true);
@@ -705,8 +754,41 @@ export default function App() {
   const handlePipelineDragEnd = useCallback(()=>{ setDraggingContactId(null); setDragOverColumn(null); },[]);
   const handlePipelineCardClick = useCallback((id:string)=>setPipelineDetailId(id),[]);
 
-  const handleUnlock = (r:string, memberId:string|null) => { setRole(r); setLoggedInMemberId(memberId||null); setPage("daily"); };
+  const handleUnlock = (r:string, memberId:string|null) => {
+    setRole(r); setLoggedInMemberId(memberId||null); setPage("daily");
+    if("Notification" in window){
+      const notify=()=>{ const due=(db.contacts||[]).filter((c:any)=>c.callbackDate===todayKey()).length; if(due>0) new Notification("blurB — Callbacks Due Today",{body:`${due} callback${due!==1?"s":""} scheduled for today`,icon:"/vite.svg"}); };
+      if(Notification.permission==="granted") notify();
+      else if(Notification.permission!=="denied") Notification.requestPermission().then(p=>{if(p==="granted")notify();});
+    }
+  };
   const handleLock   = useCallback(() => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); },[]);
+
+  const openDedupModal = useCallback(()=>{
+    const strip=(p:string)=>p.replace(/[\s\-()+.]/g,"").toLowerCase();
+    const map:Record<string,any[]>={};
+    (allContacts as any[]).forEach((c:any)=>{ const k=c.phone?strip(c.phone):null; if(!k)return; if(!map[k])map[k]=[]; map[k].push(c); });
+    const groups=Object.values(map).filter(g=>g.length>1);
+    if(!groups.length){showToast("No duplicate phone numbers found.");return;}
+    setDedupGroups(groups); setDedupIdx(0); setShowDedupModal(true);
+  },[allContacts,showToast]);
+
+  const mergeDedupContacts = useCallback((keepId:string, removeIds:string[])=>{
+    const PRIORITY:any={interested:3,callback:2,contacted:1};
+    updateDb((db:any)=>{
+      const keep=(db.contacts||[]).find((c:any)=>c.id===keepId); if(!keep)return;
+      (db.contacts||[]).filter((c:any)=>removeIds.includes(c.id)).forEach((loser:any)=>{
+        if(!keep.notes)keep.notes=[]; if(!keep.history)keep.history=[];
+        keep.notes=[...keep.notes,...(loser.notes||[])];
+        keep.history=[...keep.history,...(loser.history||[])];
+        if((PRIORITY[loser.status]||0)>(PRIORITY[keep.status]||0)) keep.status=loser.status;
+      });
+      db.contacts=(db.contacts||[]).filter((c:any)=>!removeIds.includes(c.id));
+    });
+    showToast("Contacts merged.");
+    setDedupGroups(prev=>{ const next=[...prev]; next.splice(dedupIdx,1); return next; });
+    setDedupIdx(i=>Math.min(i,dedupGroups.length-2));
+  },[updateDb,showToast,dedupIdx,dedupGroups.length]);
 
 
   const addMember = () => {
@@ -1938,6 +2020,7 @@ export default function App() {
                     <option value="hot">Hot Leads First</option>
                   </select>
                   {anyActive&&<button onClick={clearContactFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
+                  {isManager&&<button onClick={openDedupModal} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid #7c3aed",background:"#f5f3ff",color:"#7c3aed",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Find Duplicates</button>}
                   <button onClick={()=>setShowAddContactModal(true)} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid #059669",background:"#f0fdf4",color:"#059669",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>+ Add Contact</button>
                 </div>
                 {filtered.length===0&&<div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts match your filters.</div>}
@@ -1962,6 +2045,7 @@ export default function App() {
                       authorName={isManager?"Manager":(members.find((m:any)=>m.id===loggedInMemberId)?.name||"Member")}
                       onDelete={deleteContactCb}
                       onToast={showToast}
+                      waTemplates={db.settings?.waTemplates||[]}
                     />
                   ))}
                 </div>
@@ -2434,7 +2518,27 @@ export default function App() {
 
           {/*  SETTINGS (manager only)  */}
           {page==="settings"&&isManager&&(
-            <div className="fade-up"> <div style={{marginBottom:24}}><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5,marginBottom:4}}>Settings</div><div style={{fontSize:13,color:"#888"}}>Configure PINs and daily targets</div></div> <div className="card" style={{marginBottom:16}}> <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>Change PINs</div> <div style={{padding:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Manager PIN <span style={{color:"#bbb",fontWeight:400}}>(currently: {settings.managerPin||"1234"})</span></div> <div style={{position:"relative"}}><input className="text-input" type={showManagerPin?"text":"password"} inputMode="numeric" maxLength={4} placeholder="New 4-digit PIN" value={settingManagerPin} onChange={e=>{ if(/^\d*$/.test(e.target.value)&&e.target.value.length<=4) setSettingManagerPin(e.target.value); }} style={{paddingRight:40}}/><button onClick={()=>setShowManagerPin(v=>!v)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>{showManagerPin?"Hide":"Show"}</button></div> <button onClick={resetManagerPin} style={{marginTop:8,background:"none",border:"none",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:0}}>Reset to default (1234)</button> </div> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Telesales Member PIN <span style={{color:"#bbb",fontWeight:400}}>(currently: {settings.agentPin||"0000"})</span></div> <div style={{position:"relative"}}><input className="text-input" type={showMemberPin?"text":"password"} inputMode="numeric" maxLength={4} placeholder="New 4-digit PIN" value={settingMemberPin} onChange={e=>{ if(/^\d*$/.test(e.target.value)&&e.target.value.length<=4) setSettingMemberPin(e.target.value); }} style={{paddingRight:40}}/><button onClick={()=>setShowMemberPin(v=>!v)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>{showMemberPin?"Hide":"Show"}</button></div> <button onClick={resetMemberPin} style={{marginTop:8,background:"none",border:"none",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:0}}>Reset to default (0000)</button> </div> </div> </div> <div className="card" style={{marginBottom:20}}> <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>Daily Targets (per telesales member)</div> <div style={{padding:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Call Target <span style={{color:"#bbb",fontWeight:400}}>(currently: {callTarget||"not set"})</span></div> <input className="text-input" type="number" min={0} placeholder="e.g. 80" value={settingCallTarget} onChange={e=>setSettingCallTarget(e.target.value)}/> <div style={{fontSize:11,color:"#999",marginTop:5}}>Calls each member should make per day</div> </div> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Interested Target <span style={{color:"#bbb",fontWeight:400}}>(currently: {intTarget||"not set"})</span></div> <input className="text-input" type="number" min={0} placeholder="e.g. 10" value={settingIntTarget} onChange={e=>setSettingIntTarget(e.target.value)}/> <div style={{fontSize:11,color:"#999",marginTop:5}}>Interested leads each member should get</div> </div> </div> </div> <button className="primary-btn" style={{width:"100%",padding:14,fontSize:14}} onClick={saveSettings}>Save Settings</button> <div style={{marginTop:16,padding:"14px 18px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,fontSize:13,color:"#92400e"}}>Changing PINs takes effect on next login. Remember the new PINs before locking the app.</div> </div> )}
+            <div className="fade-up"> <div style={{marginBottom:24}}><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5,marginBottom:4}}>Settings</div><div style={{fontSize:13,color:"#888"}}>Configure PINs and daily targets</div></div> <div className="card" style={{marginBottom:16}}> <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>Change PINs</div> <div style={{padding:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Manager PIN <span style={{color:"#bbb",fontWeight:400}}>(currently: {settings.managerPin||"1234"})</span></div> <div style={{position:"relative"}}><input className="text-input" type={showManagerPin?"text":"password"} inputMode="numeric" maxLength={4} placeholder="New 4-digit PIN" value={settingManagerPin} onChange={e=>{ if(/^\d*$/.test(e.target.value)&&e.target.value.length<=4) setSettingManagerPin(e.target.value); }} style={{paddingRight:40}}/><button onClick={()=>setShowManagerPin(v=>!v)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>{showManagerPin?"Hide":"Show"}</button></div> <button onClick={resetManagerPin} style={{marginTop:8,background:"none",border:"none",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:0}}>Reset to default (1234)</button> </div> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Telesales Member PIN <span style={{color:"#bbb",fontWeight:400}}>(currently: {settings.agentPin||"0000"})</span></div> <div style={{position:"relative"}}><input className="text-input" type={showMemberPin?"text":"password"} inputMode="numeric" maxLength={4} placeholder="New 4-digit PIN" value={settingMemberPin} onChange={e=>{ if(/^\d*$/.test(e.target.value)&&e.target.value.length<=4) setSettingMemberPin(e.target.value); }} style={{paddingRight:40}}/><button onClick={()=>setShowMemberPin(v=>!v)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>{showMemberPin?"Hide":"Show"}</button></div> <button onClick={resetMemberPin} style={{marginTop:8,background:"none",border:"none",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:0}}>Reset to default (0000)</button> </div> </div> </div> <div className="card" style={{marginBottom:20}}> <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>Daily Targets (per telesales member)</div> <div style={{padding:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Call Target <span style={{color:"#bbb",fontWeight:400}}>(currently: {callTarget||"not set"})</span></div> <input className="text-input" type="number" min={0} placeholder="e.g. 80" value={settingCallTarget} onChange={e=>setSettingCallTarget(e.target.value)}/> <div style={{fontSize:11,color:"#999",marginTop:5}}>Calls each member should make per day</div> </div> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Interested Target <span style={{color:"#bbb",fontWeight:400}}>(currently: {intTarget||"not set"})</span></div> <input className="text-input" type="number" min={0} placeholder="e.g. 10" value={settingIntTarget} onChange={e=>setSettingIntTarget(e.target.value)}/> <div style={{fontSize:11,color:"#999",marginTop:5}}>Interested leads each member should get</div> </div> </div> </div> <button className="primary-btn" style={{width:"100%",padding:14,fontSize:14}} onClick={saveSettings}>Save Settings</button> <div style={{marginTop:16,padding:"14px 18px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,fontSize:13,color:"#92400e"}}>Changing PINs takes effect on next login. Remember the new PINs before locking the app.</div>
+            <div className="card" style={{marginTop:20}}>
+              <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>WhatsApp Templates <span style={{fontSize:12,color:"#888",fontWeight:500}}>— use {"{name}"}, {"{phone}"}, {"{company}"} as placeholders</span></div>
+              <div style={{padding:16,display:"flex",flexDirection:"column",gap:8}}>
+                {(db.settings?.waTemplates||[]).map((t:any)=>(
+                  <div key={t.id} style={{background:"#fafafa",border:"1.5px solid #ebebeb",borderRadius:10,padding:"10px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:13,color:"#059669",marginBottom:3}}>{t.name}</div>
+                      <div style={{fontSize:12,color:"#555",lineHeight:1.5,wordBreak:"break-word" as const}}>{t.body}</div>
+                    </div>
+                    <button onClick={()=>updateDb((db:any)=>{if(db.settings?.waTemplates)db.settings.waTemplates=db.settings.waTemplates.filter((x:any)=>x.id!==t.id);})} style={{padding:"4px 10px",borderRadius:7,border:"1.5px solid #fecaca",background:"#fff",color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Delete</button>
+                  </div>
+                ))}
+                <div style={{background:"#f0fdf4",border:"1.5px solid #a7f3d0",borderRadius:10,padding:14,display:"flex",flexDirection:"column",gap:8}}>
+                  <input value={newTplName} onChange={e=>setNewTplName(e.target.value)} placeholder="Template name (e.g. First Follow-up)" style={{border:"1.5px solid #e5e5e5",borderRadius:8,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
+                  <textarea value={newTplBody} onChange={e=>setNewTplBody(e.target.value)} placeholder={`Hi {name}, just following up on our call…`} rows={3} style={{border:"1.5px solid #e5e5e5",borderRadius:8,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",resize:"vertical" as const}}/>
+                  <button onClick={()=>{if(!newTplName.trim()||!newTplBody.trim()){showToast("Name and body required.");return;} updateDb((db:any)=>{if(!db.settings)db.settings={};if(!db.settings.waTemplates)db.settings.waTemplates=[];db.settings.waTemplates.push({id:uid(),name:newTplName.trim(),body:newTplBody.trim()});}); setNewTplName("");setNewTplBody("");showToast("Template saved.");}} className="green-btn" style={{alignSelf:"flex-end",padding:"7px 18px",fontSize:13}}>Add Template</button>
+                </div>
+              </div>
+            </div>
+            </div> )}
         </div> {/*  MODALS  */}
         {modal==="addTask"&&(
           <div className="modal-overlay" onClick={()=>setModal(null)}> <div className="modal" onClick={e=>e.stopPropagation()}> <div style={{fontWeight:800,fontSize:18,marginBottom:4,letterSpacing:-.3}}>New Task</div> <div style={{fontSize:13,color:"#888",marginBottom:18}}>Choose a type, assign members, and set a title</div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Type</div> <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{Object.entries(TASK_TYPES).map(([k,v])=><button key={k} className={`type-btn ${newTaskType===k?"active":""}`} onClick={()=>setNewTaskType(k)}>{v.label}</button>)}</div> </div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Assign Telesales Members <span style={{color:"#999",fontWeight:400}}>(select one or more)</span></div> {members.length===0?(
@@ -2444,6 +2548,45 @@ export default function App() {
                         </div> </div> );})}
                   </div> )}
               </div> <div style={{marginBottom:20}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Title</div> <input ref={modalRef} className="text-input" value={newTaskTitle} onChange={e=>setNewTaskTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder={newTaskType==="telesales"?"e.g. Morning Call Session":newTaskType==="whatsapp"?"e.g. April Follow-up":"e.g. Prepare weekly report"}/> </div> <div style={{display:"flex",gap:10}}> <button className="ghost-btn" style={{flex:1}} onClick={()=>{setModal(null);setNewTaskTitle("");}}>Cancel</button> <button className="primary-btn" style={{flex:1}} onClick={addTask} disabled={!newTaskTitle.trim()||newTaskMemberIds.length===0||members.length===0}>Create Task</button> </div> </div> </div> )}
+        {showDedupModal&&dedupGroups.length>0&&(()=>{
+          const group=dedupGroups[dedupIdx]||[];
+          const PRIORITY:any={interested:3,callback:2,contacted:1};
+          const remaining=dedupGroups.length-dedupIdx;
+          return (
+            <div className="modal-overlay" onClick={()=>setShowDedupModal(false)}>
+              <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:520}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+                  <div><div style={{fontWeight:800,fontSize:18,letterSpacing:-.4}}>Duplicate Contacts</div><div style={{fontSize:12,color:"#888",marginTop:2}}>{remaining} group{remaining!==1?"s":""} remaining</div></div>
+                  <button onClick={()=>setShowDedupModal(false)} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:"#aaa"}}>✕</button>
+                </div>
+                <div style={{fontSize:12,color:"#888",marginBottom:12}}>Same phone number found across multiple contacts. Choose which to keep — the others will be merged into it.</div>
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:16}}>
+                  {group.map((contact:any)=>{
+                    const sm=CONTACT_STATUS_META[contact.status]||CONTACT_STATUS_META.contacted;
+                    const isWinner=(PRIORITY[contact.status]||0)===Math.max(...group.map((x:any)=>PRIORITY[x.status]||0));
+                    return (
+                      <div key={contact.id} style={{border:`2px solid ${isWinner?"#059669":"#ebebeb"}`,borderRadius:12,padding:"12px 14px",background:isWinner?"#f0fdf4":"#fafafa"}}>
+                        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                          <div style={{fontWeight:700,fontSize:14}}>{contact.name||"Unknown"}</div>
+                          <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                            {isWinner&&<span style={{fontSize:10,fontWeight:700,color:"#059669",background:"#dcfce7",padding:"2px 7px",borderRadius:20}}>Suggested keep</span>}
+                            <span style={{fontSize:11,fontWeight:700,color:sm.color,background:sm.bg,padding:"2px 8px",borderRadius:20}}>{sm.label}</span>
+                          </div>
+                        </div>
+                        <div style={{fontSize:12,color:"#888",marginBottom:8}}>{contact.phone} · {contact.campaign||"No campaign"} · {contact.salesAgent||"Unassigned"}</div>
+                        <button onClick={()=>mergeDedupContacts(contact.id,group.filter((x:any)=>x.id!==contact.id).map((x:any)=>x.id))} className="primary-btn" style={{padding:"6px 14px",fontSize:12}}>Keep this one</button>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>setDedupIdx(i=>Math.min(i+1,dedupGroups.length-1))} className="ghost-btn" style={{flex:1}}>Skip this group</button>
+                  <button onClick={()=>setShowDedupModal(false)} className="ghost-btn" style={{flex:1}}>Done</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
         {showAddContactModal&&(
           <div className="modal-overlay" onClick={()=>setShowAddContactModal(false)}>
             <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:420}}>
