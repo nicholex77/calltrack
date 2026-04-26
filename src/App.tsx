@@ -1133,7 +1133,7 @@ export default function App() {
     const tt=TASK_TYPES[task.type as keyof typeof TASK_TYPES]; const isActive=task.id===selectedTaskId;
     const assigned=task.assignedMembers||[];
     let subtitle="";
-    if(task.type==="telesales"){ const tot=(assigned as any[]).reduce((a:number,m:any)=>a+(task.memberStats?.[m.id]?.total||0),0); subtitle=`${tot} calls · ${assigned.length} member${assigned.length!==1?"s":""}`; }
+    if(task.type==="telesales"){ const tot=(assigned as any[]).reduce((a:number,m:any)=>a+((task.linkedCampaign&&linkedTaskStats[task.id])?linkedTaskStats[task.id]?.[m.id]?.total||0:task.memberStats?.[m.id]?.total||0),0); subtitle=`${tot} calls · ${assigned.length} member${assigned.length!==1?"s":""}`; }
     else if(task.type==="whatsapp"){ subtitle=`${task.campaigns?.length||0} campaign${task.campaigns?.length!==1?"s":""}`; }
     else { const done=(assigned as any[]).filter((m:any)=>task.memberDone?.[m.id]).length; subtitle=`${done}/${assigned.length} done`; }
     return (
@@ -1234,7 +1234,7 @@ export default function App() {
                 dayTasks.filter((t:any)=>t.type==="telesales").forEach((t:any)=>{
                   (t.assignedMembers||[]).forEach((m:any)=>{
                     if(!entries[m.id]) entries[m.id]={name:m.name,total:0,interested:0};
-                    const s=t.memberStats?.[m.id]||{};
+                    const s=(t.linkedCampaign&&linkedTaskStats[t.id]?.[m.id])?linkedTaskStats[t.id][m.id]:(t.memberStats?.[m.id]||{});
                     entries[m.id].total+=(s.total||0);
                     entries[m.id].interested+=(s.interested||0);
                   });
