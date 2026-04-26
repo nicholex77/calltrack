@@ -69,6 +69,15 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px" }}>
             {fieldRow("Phone", c.phone || "")}
             {fieldRow("Mobile / Alt. Phone", c.phone2 || "")}
+            {c.email ? (
+              <div style={{ padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 2 }}>Email</div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <a href={`mailto:${c.email}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: "#1a56db", textDecoration: "none", fontWeight: 600, wordBreak: "break-all" as const, flex: 1 }}>{c.email}</a>
+                  <button onClick={e => { e.stopPropagation(); safeCopy(c.email); onToast("Email copied"); }} style={{ padding: "2px 9px", borderRadius: 6, border: "1.5px solid #e5e5e5", background: "#fff", color: "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Copy</button>
+                </div>
+              </div>
+            ) : null}
             {fieldRow("Store ID", c.storeId || "")}
             {fieldRow("REN ID", c.renId || "")}
             {fieldRow("Store Type", c.storeType || "")}
@@ -179,7 +188,7 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={() => { const txt = [`Name: ${c.name || ""}`, `Phone: ${c.phone || ""}`, `Mobile / Alt. Phone: ${c.phone2 || ""}`, `Store ID: ${c.storeId || ""}`, `REN ID: ${c.renId || ""}`, `Store Type: ${c.storeType || ""}`, `Company / Agency: ${c.company || ""}`, `Status: ${sm.label}`, `Agent (sheet): ${c.agentName || ""}`, `Date: ${c.date ? fmt(c.date) : ""}`, `Campaign: ${c.campaign || ""}`, `Remarks: ${c.remarks || ""}`, `Sales Agent: ${c.salesAgent || ""}`].filter(l => !l.endsWith(": ")).join("\n"); safeCopy(txt); onToast("All details copied"); }} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "1.5px solid #1a56db", background: "#fff", color: "#1a56db", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Copy All</button>
+            <button onClick={() => { const txt = [`Name: ${c.name || ""}`, `Phone: ${c.phone || ""}`, `Mobile / Alt. Phone: ${c.phone2 || ""}`, `Email: ${c.email || ""}`, `Store ID: ${c.storeId || ""}`, `REN ID: ${c.renId || ""}`, `Store Type: ${c.storeType || ""}`, `Company / Agency: ${c.company || ""}`, `Status: ${sm.label}`, `Agent (sheet): ${c.agentName || ""}`, `Date: ${c.date ? fmt(c.date) : ""}`, `Campaign: ${c.campaign || ""}`, `Remarks: ${c.remarks || ""}`, `Sales Agent: ${c.salesAgent || ""}`].filter(l => !l.endsWith(": ")).join("\n"); safeCopy(txt); onToast("All details copied"); }} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "1.5px solid #1a56db", background: "#fff", color: "#1a56db", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Copy All</button>
             {isManager && <button onClick={() => { if (window.confirm(`Delete ${c.name || "this contact"}?`)) { onDelete(c.id); onToggle(null); } }} style={{ padding: "8px 16px", borderRadius: 9, border: "1.5px solid #ef4444", background: "#fff", color: "#ef4444", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Delete</button>}
           </div>
         </div>

@@ -53,7 +53,7 @@ export default function App() {
   const [contactLimit, setContactLimit]           = useState(100);
   const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns"|"funnel"|"log"|"activity">("agents");
   const [showAddContactModal, setShowAddContactModal] = useState(false);
-  const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
+  const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",email:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
   const [showDedupModal, setShowDedupModal]       = useState(false);
   const [dedupGroups, setDedupGroups]             = useState<any[][]>([]);
   const [dedupIdx, setDedupIdx]                   = useState(0);
@@ -206,7 +206,7 @@ export default function App() {
       if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
       if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
       if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
-      if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""}`.toLowerCase().includes(q)) return false;
+      if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""} ${c.email||""}`.toLowerCase().includes(q)) return false;
       return true;
     });
     const today=todayKey();
@@ -447,11 +447,11 @@ export default function App() {
   const addContactManually = useCallback(() => {
     const f=addContactForm;
     if(!f.name.trim()&&!f.phone.trim()){showToast("Name or phone is required.");return;}
-    const c={id:uid(),name:f.name.trim(),phone:f.phone.trim(),phone2:"",storeType:"",company:"",storeId:"",renId:"",agentName:"",date:todayKey(),campaign:f.campaign.trim(),remarks:f.remarks.trim(),status:f.status||"contacted",leadStatus:null,salesAgent:f.salesAgent||"",lastTouched:todayKey(),callbackDate:"",notes:[],history:[]};
+    const c={id:uid(),name:f.name.trim(),phone:f.phone.trim(),email:f.email.trim(),phone2:"",storeType:"",company:"",storeId:"",renId:"",agentName:"",date:todayKey(),campaign:f.campaign.trim(),remarks:f.remarks.trim(),status:f.status||"contacted",leadStatus:null,salesAgent:f.salesAgent||"",lastTouched:todayKey(),callbackDate:"",notes:[],history:[]};
     setContacts(prev=>{ const n=[...prev,c]; saveLocalContacts(n); upsertContact(c); return n; });
     showToast(`Contact "${f.name||f.phone}" added.`);
     setShowAddContactModal(false);
-    setAddContactForm({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
+    setAddContactForm({name:"",phone:"",email:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
   },[addContactForm,showToast]);
 
   const handlePipelineDrop = useCallback((e:React.DragEvent,targetStatus:string)=>{
@@ -555,6 +555,7 @@ export default function App() {
       const iInterest  = col("interest","interested");
       const iAgent     = col("telesales","telesales_member","member","assigned_member","assigned","assigned_to","agent","agent_name");
       const iDate      = col("date");
+      const iEmail     = col("email","email_address","contact_email","e_mail","e-mail");
 
       const PRIORITY: any = { interested:3, callback:2, contacted:1 };
       const stripPhone = (p:string) => p.replace(/[\s\-()+.]/g,"").toLowerCase();
@@ -582,13 +583,14 @@ export default function App() {
         const remarks   = iState     >= 0 ? row[iState].trim()     : "";
         const agent     = iAgent     >= 0 ? row[iAgent].trim()     : "";
         const date      = normalizeDate(iDate >= 0 ? row[iDate].trim() : "");
+        const email     = iEmail     >= 0 ? row[iEmail].trim()     : "";
         const key       = (phone ? stripPhone(phone) : name.toLowerCase().trim());
         if (!key) continue;
 
         const existing = seen[key];
         const inP = PRIORITY[bucket]||0;
         if (!existing || inP > (PRIORITY[existing.status]||0)) {
-          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, phone2, storeType, company, storeId, renId, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
+          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, phone2, storeType, company, storeId, renId, email, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
         }
       }
 
@@ -2292,6 +2294,7 @@ export default function App() {
               <div style={{display:"flex",flexDirection:"column",gap:10}}>
                 <input autoFocus placeholder="Name *" value={addContactForm.name} onChange={e=>setAddContactForm(f=>({...f,name:e.target.value}))} onKeyDown={e=>e.key==="Enter"&&addContactManually()} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"9px 12px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
                 <input placeholder="Phone *" value={addContactForm.phone} onChange={e=>setAddContactForm(f=>({...f,phone:e.target.value}))} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"9px 12px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                <input placeholder="Email (optional)" type="email" value={addContactForm.email} onChange={e=>setAddContactForm(f=>({...f,email:e.target.value}))} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"9px 12px",fontSize:13,fontFamily:"inherit",outline:"none",width:"100%"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
                   <div>
                     <div style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase" as const,letterSpacing:.5,marginBottom:5}}>Call Status</div>

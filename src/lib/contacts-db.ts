@@ -16,7 +16,8 @@ export const contactToDb = (c: any) => ({
   store_type: c.storeType || null, company: c.company || null, store_id: c.storeId || null, ren_id: c.renId || null,
   agent_name: c.agentName || null, date: c.date || null, campaign: c.campaign || null, remarks: c.remarks || null,
   status: c.status || "contacted", lead_status: c.leadStatus || null, sales_agent: c.salesAgent || null,
-  last_touched: c.lastTouched || null, callback_date: c.callbackDate || null, notes: c.notes || [], history: c.history || []
+  last_touched: c.lastTouched || null, callback_date: c.callbackDate || null, notes: c.notes || [], history: c.history || [],
+  email: c.email || null,
 });
 
 export const dbToContact = (r: any) => ({
@@ -24,7 +25,8 @@ export const dbToContact = (r: any) => ({
   storeType: r.store_type || "", company: r.company || "", storeId: r.store_id || "", renId: r.ren_id || "",
   agentName: r.agent_name || "", date: r.date || "", campaign: r.campaign || "", remarks: r.remarks || "",
   status: r.status || "contacted", leadStatus: r.lead_status || null, salesAgent: r.sales_agent || "",
-  lastTouched: r.last_touched || "", callbackDate: r.callback_date || "", notes: r.notes || [], history: r.history || []
+  lastTouched: r.last_touched || "", callbackDate: r.callback_date || "", notes: r.notes || [], history: r.history || [],
+  email: r.email || "",
 });
 
 export const loadRemoteContacts = async (): Promise<any[]> => {
