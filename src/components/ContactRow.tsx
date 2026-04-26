@@ -1,12 +1,15 @@
 import React from "react";
 import { CONTACT_STATUS_META, CONTACT_LEAD_META } from "../lib/constants";
-import { staleness, initials, fmt, fmtNoteTime } from "../lib/utils";
+import { staleness, initials, fmt, fmtNoteTime, scoreContact } from "../lib/utils";
 import { safeCopy } from "../lib/security";
 
 export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected, selectMode, isManager, members, onToggle, onSelect, onSalesAgent, onLeadStatus, onStatus, onCallbackDate, onAddNote, authorName, onDelete, onToast, waTemplates }: any) {
   const sm = CONTACT_STATUS_META[c.status] || CONTACT_STATUS_META.contacted;
   const lm = c.leadStatus ? CONTACT_LEAD_META[c.leadStatus] : null;
   const st = staleness(c.lastTouched || "");
+  const score = scoreContact(c);
+  const scoreBg = score >= 70 ? "#f0fdf4" : score >= 40 ? "#fffbeb" : "#f9f9f9";
+  const scoreColor = score >= 70 ? "#059669" : score >= 40 ? "#d97706" : "#9ca3af";
   const [noteText, setNoteText] = React.useState("");
   const [swipeOpen, setSwipeOpen] = React.useState(false);
   const [showTpl, setShowTpl] = React.useState(false);
@@ -48,6 +51,7 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             <span style={{ fontSize: 11, fontWeight: 700, color: sm.color, background: sm.bg, padding: "2px 8px", borderRadius: 20 }}>{sm.label}</span>
             {c.campaign && <span style={{ fontSize: 10, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", padding: "2px 7px", borderRadius: 20, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.campaign}</span>}
             {c.salesAgent && <span style={{ fontSize: 11, color: "#555", background: "#f5f5f5", padding: "2px 8px", borderRadius: 20 }}>{c.salesAgent}</span>}
+            <span style={{ fontSize: 10, fontWeight: 800, color: scoreColor, background: scoreBg, padding: "2px 7px", borderRadius: 20, flexShrink: 0 }}>{score}</span>
             {!selectMode && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isOpen ? "#1a56db" : "#bbb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform .2s", flexShrink: 0 }}><polyline points="9 18 15 12 9 6" /></svg>}
           </div>
         </div>

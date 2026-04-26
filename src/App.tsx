@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { supabase } from "./lib/supabase";
 import { CSS } from "./styles";
-import { initials, uid, todayKey, weekStart, addDays, normalizeDate, fmt, dayName, fmtNoteTime } from "./lib/utils";
+import { initials, uid, todayKey, weekStart, addDays, normalizeDate, fmt, dayName, fmtNoteTime, scoreContact } from "./lib/utils";
 import { hashPin, safeCopy } from "./lib/security";
 import { loadLocal, saveLocal, loadRemote, saveRemote } from "./lib/storage";
 import { loadLocalContacts, saveLocalContacts, dbToContact, loadRemoteContacts, upsertContact, upsertContacts, deleteRemoteContact, deleteRemoteContacts } from "./lib/contacts-db";
@@ -51,7 +51,7 @@ export default function App() {
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [contactSort, setContactSort]             = useState("status");
   const [contactLimit, setContactLimit]           = useState(100);
-  const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns"|"funnel"|"log">("agents");
+  const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns"|"funnel"|"log"|"activity">("agents");
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
   const [showDedupModal, setShowDedupModal]       = useState(false);
@@ -227,6 +227,7 @@ export default function App() {
       if(contactSort==="stale")  return staleD(b)-staleD(a);
       if(contactSort==="hot")    return (leadP[b.leadStatus]||0)-(leadP[a.leadStatus]||0);
       if(contactSort==="queue")  return queueScore(b)-queueScore(a);
+      if(contactSort==="score")  return scoreContact(b)-scoreContact(a);
       return ({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0);
     });
   },[allContacts,contactFilters,contactSearch,contactSort]);
@@ -1540,6 +1541,7 @@ export default function App() {
                     <option value="newest">Newest First</option>
                     <option value="stale">Most Stale</option>
                     <option value="hot">Hot Leads First</option>
+                    <option value="score">⭐ Score</option>
                   </select>
                   {anyActive&&<button onClick={clearContactFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
                   {isManager&&<button onClick={openDedupModal} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid #7c3aed",background:"#f5f3ff",color:"#7c3aed",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Find Duplicates</button>}
@@ -1778,7 +1780,8 @@ export default function App() {
               const hot=cs.filter((c:any)=>c.leadStatus==="hot").length;
               const stale=cs.filter((c:any)=>{if(!c.lastTouched)return true;const d=Math.floor((Date.now()-new Date(c.lastTouched+"T00:00:00").getTime())/86400000);return d>7;}).length;
               const callbackDueToday=cs.filter((c:any)=>c.callbackDate===today).length;
-              return {name,total,contacted,callback,interested,hot,stale,callbackDueToday};
+              const avgScore=cs.length>0?Math.round(cs.reduce((s:number,c:any)=>s+scoreContact(c),0)/cs.length):0;
+              return {name,total,contacted,callback,interested,hot,stale,callbackDueToday,avgScore};
             });
             const campaignNames=Array.from(new Set(allContacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort();
             const campaignRows=campaignNames.map(camp=>{
@@ -1802,6 +1805,7 @@ export default function App() {
                   <button className={`stats-tab${statsTab==="campaigns"?" active":""}`} onClick={()=>setStatsTab("campaigns")}>Campaigns</button>
                   <button className={`stats-tab${statsTab==="funnel"?" active":""}`} onClick={()=>setStatsTab("funnel")}>Funnel</button>
                   <button className={`stats-tab${statsTab==="log"?" active":""}`} onClick={()=>setStatsTab("log")}>Call Log</button>
+                  <button className={`stats-tab${statsTab==="activity"?" active":""}`} onClick={()=>setStatsTab("activity")}>Activity</button>
                 </div>
                 {statsTab==="agents"&&(agentRows.length===0?(
                   <div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No contacts assigned to agents yet.</div>
@@ -1822,6 +1826,7 @@ export default function App() {
                             {r.callbackDueToday>0&&<span style={{fontSize:11,fontWeight:700,color:"#d97706",background:"#fffbeb",padding:"2px 8px",borderRadius:20}}>{r.callbackDueToday} callback today</span>}
                             {r.stale>0&&<span style={{fontSize:11,fontWeight:700,color:"#6b7280",background:"#f3f4f6",padding:"2px 8px",borderRadius:20}}>{r.stale} stale (&gt;7d)</span>}
                             {r.stale>0&&<button onClick={()=>handleReassignStale(r.name)} style={{fontSize:11,fontWeight:700,color:"#1a56db",background:"#eff6ff",border:"1.5px solid #bfdbfe",borderRadius:8,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}>Reassign stale →</button>}
+                            <span style={{fontSize:11,fontWeight:700,color:r.avgScore>=70?"#059669":r.avgScore>=40?"#d97706":"#9ca3af",background:r.avgScore>=70?"#f0fdf4":r.avgScore>=40?"#fffbeb":"#f9f9f9",padding:"2px 8px",borderRadius:20}}>avg score {r.avgScore}</span>
                           </div>
                         </div>
                         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8}}>
@@ -1991,6 +1996,61 @@ export default function App() {
                           <div style={{fontSize:11,fontWeight:700,color:"#888",margin:"14px 0 6px",textTransform:"uppercase",letterSpacing:.5}}>Earlier</div>
                           {olderEntries.slice(0,100).map(renderEntry)}
                         </>
+                      )}
+                    </div>
+                  );
+                })()}
+                {statsTab==="activity"&&(()=>{
+                  const weekStartDate=weekStart(today);
+                  const activityRows=members.map((m:any)=>{
+                    const entries=allContacts.flatMap((c:any)=>(c.history||[]).filter((h:any)=>h.by===m.name));
+                    const todayEntries=entries.filter((h:any)=>(h.timestamp||"").startsWith(today));
+                    const weekEntries=entries.filter((h:any)=>(h.timestamp||"").slice(0,10)>=weekStartDate);
+                    const days7=Array.from({length:7},(_,i)=>addDays(today,-(6-i)));
+                    const sparkline=days7.map(d=>entries.filter((h:any)=>(h.timestamp||"").startsWith(d)).length);
+                    return {
+                      name:m.name, colorIdx:m.colorIdx,
+                      todayCalls:todayEntries.length,
+                      weekCalls:weekEntries.length,
+                      todayInterested:todayEntries.filter((h:any)=>h.type==="status"&&h.to==="interested").length,
+                      weekInterested:weekEntries.filter((h:any)=>h.type==="status"&&h.to==="interested").length,
+                      avgPerDay:Math.round(weekEntries.length/7),
+                      sparkline,
+                    };
+                  }).sort((a:any,b:any)=>b.weekCalls-a.weekCalls);
+                  const maxBar=Math.max(1,...activityRows.flatMap((r:any)=>r.sparkline));
+                  if(members.length===0) return <div style={{textAlign:"center",padding:"60px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16,color:"#bbb",fontSize:13}}>No members added yet.</div>;
+                  return (
+                    <div>
+                      <div style={{background:"#fff",border:"1.5px solid #ebebeb",borderRadius:14,overflow:"hidden"}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 80px 90px 90px 90px 70px",gap:0,background:"#1a56db",padding:"10px 16px"}}>
+                          {["Agent","Today","This Week","Int. Today","Int. Week","Avg/Day"].map(h=>(
+                            <div key={h} style={{fontSize:11,fontWeight:700,color:"#fff",textTransform:"uppercase" as const,letterSpacing:.4}}>{h}</div>
+                          ))}
+                        </div>
+                        {activityRows.map((r:any)=>(
+                          <div key={r.name} style={{display:"grid",gridTemplateColumns:"1fr 80px 90px 90px 90px 70px",gap:0,padding:"12px 16px",borderBottom:"1px solid #f3f4f6",alignItems:"center"}}>
+                            <div>
+                              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                                <div style={{width:28,height:28,borderRadius:8,background:AVATAR_COLORS[r.colorIdx]?.[0]||"#1a56db",display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:800,color:"#fff",flexShrink:0}}>{initials(r.name)}</div>
+                                <span style={{fontWeight:700,fontSize:13}}>{r.name}</span>
+                              </div>
+                              <div style={{display:"flex",alignItems:"flex-end",gap:2,height:32}}>
+                                {r.sparkline.map((v:number,i:number)=>(
+                                  <div key={i} title={`${addDays(today,-(6-i))}: ${v}`} style={{flex:1,background:v>0?"#1a56db":"#e8efff",borderRadius:"3px 3px 0 0",height:`${Math.max(2,Math.round(v/maxBar*32))}px`,transition:"height .2s"}}/>
+                                ))}
+                              </div>
+                            </div>
+                            <div style={{fontSize:16,fontWeight:800,color:r.todayCalls>0?"#1a56db":"#bbb",textAlign:"center" as const}}>{r.todayCalls}</div>
+                            <div style={{fontSize:16,fontWeight:800,color:r.weekCalls>0?"#111":"#bbb",textAlign:"center" as const}}>{r.weekCalls}</div>
+                            <div style={{fontSize:16,fontWeight:800,color:r.todayInterested>0?"#059669":"#bbb",textAlign:"center" as const}}>{r.todayInterested}</div>
+                            <div style={{fontSize:16,fontWeight:800,color:r.weekInterested>0?"#059669":"#bbb",textAlign:"center" as const}}>{r.weekInterested}</div>
+                            <div style={{fontSize:13,fontWeight:600,color:"#888",textAlign:"center" as const}}>{r.avgPerDay}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {activityRows.every((r:any)=>r.weekCalls===0)&&(
+                        <div style={{textAlign:"center",padding:"20px",fontSize:13,color:"#bbb",marginTop:12}}>No status changes recorded yet — activity populates as agents update contacts.</div>
                       )}
                     </div>
                   );

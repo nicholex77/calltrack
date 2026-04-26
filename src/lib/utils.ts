@@ -53,6 +53,27 @@ export const staleness = (lastTouched: string) => {
   return { label: `${d}d ago`, cls: "stale-old" };
 };
 
+export const scoreContact = (c: any): number => {
+  const today = todayKey();
+  let score = 0;
+  if (c.leadStatus === "hot") score += 40;
+  else if (c.leadStatus === "warm") score += 20;
+  else if (c.leadStatus === "cold") score += 5;
+  if (c.status === "interested") score += 30;
+  else if (c.status === "callback") score += 15;
+  else if (c.status === "contacted") score += 5;
+  if (c.lastTouched === today) score += 15;
+  if ((c.notes || []).length > 0) score += 10;
+  if (c.callbackDate && c.callbackDate >= today) score += 10;
+  if (c.lastTouched) {
+    const d = Math.floor((Date.now() - new Date(c.lastTouched + "T00:00:00").getTime()) / 86400000);
+    if (d > 7) score -= 20;
+  } else {
+    score -= 10;
+  }
+  return Math.max(0, Math.min(100, score));
+};
+
 export const fmtNoteTime = (iso: string) => {
   try {
     const d = new Date(iso);
