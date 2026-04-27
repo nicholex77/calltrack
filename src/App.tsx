@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from "react";
 import { supabase } from "./lib/supabase";
 import { CSS } from "./styles";
 import { initials, uid, todayKey, weekStart, addDays, normalizeDate, fmt, dayName, fmtNoteTime, scoreContact } from "./lib/utils";
@@ -32,6 +32,8 @@ export default function App() {
   const [campaignInput, setCampaignInput] = useState("");
   const [campaignTargetId, setCampaignTargetId] = useState<string|null>(null);
   const [toast, setToast]             = useState<string|null>(null);
+  const [toastAction, setToastAction] = useState<{label:string,fn:()=>void}|null>(null);
+  const [isOnline, setIsOnline]       = useState(true);
   const [settingManagerPin, setSettingManagerPin] = useState("");
   const [settingMemberPin, setSettingMemberPin]   = useState("");
   const [showManagerPin, setShowManagerPin]       = useState(false);
@@ -129,7 +131,10 @@ export default function App() {
         if(!incoming||incoming.__writerId===writerIdRef.current) return;
         const { __writerId:_, ...clean } = incoming;
         saveLocal(clean); setDb(clean);
-      }).subscribe();
+      }).subscribe((status:string)=>{
+        if(status==="SUBSCRIBED" && navigator.onLine) setIsOnline(true);
+        else if(status==="CHANNEL_ERROR" || status==="TIMED_OUT" || status==="CLOSED") setIsOnline(false);
+      });
 
     const contactsChannel = supabase.channel("contacts-realtime")
       .on("postgres_changes",{event:"*",schema:"public",table:"contacts"},(payload:any)=>{
@@ -147,7 +152,7 @@ export default function App() {
   useEffect(()=>{ if(!modal) return; const t=setTimeout(()=>modalRef.current?.focus(),60); return ()=>clearTimeout(t); },[modal]);
   useEffect(()=>{ setSelectedTaskId(null); },[currentDate]);
 
-  const showToast = useCallback((msg:string) => { if(toastTimerRef.current) clearTimeout(toastTimerRef.current); setToast(msg); toastTimerRef.current=setTimeout(()=>setToast(null),2200); },[]);
+  const showToast = useCallback((msg:string, action?:{label:string,fn:()=>void}) => { if(toastTimerRef.current) clearTimeout(toastTimerRef.current); setToast(msg); setToastAction(action||null); toastTimerRef.current=setTimeout(()=>{setToast(null);setToastAction(null);},action?6000:2200); },[]);
 
   const attemptSave = useCallback((data:any, attempt=0) => {
     const DELAYS = [5000, 15000, 30000];
@@ -199,8 +204,9 @@ export default function App() {
   const contactAgentOpts  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[],[allContacts]);
   const toggleContactFilter = useCallback((dim:string, val:string) => { setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }); setContactLimit(100); },[]);
   const clearContactFilters = useCallback(() => { setContactFilters({status:[],lead:[],campaign:[],agent:[]}); setContactLimit(100); },[]);
+  const deferredContactSearch = useDeferredValue(contactSearch);
   const filteredContacts  = useMemo(()=>{
-    const cf=contactFilters; const q=contactSearch.trim().toLowerCase();
+    const cf=contactFilters; const q=deferredContactSearch.trim().toLowerCase();
     const filtered=allContacts.filter((c:any)=>{
       if(cf.status?.length   && !cf.status.includes(c.status)) return false;
       if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
@@ -230,7 +236,7 @@ export default function App() {
       if(contactSort==="score")  return scoreContact(b)-scoreContact(a);
       return ({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0);
     });
-  },[allContacts,contactFilters,contactSearch,contactSort]);
+  },[allContacts,contactFilters,deferredContactSearch,contactSort]);
 
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
   // Auto-computed stats for telesales tasks linked to a campaign
@@ -282,6 +288,32 @@ export default function App() {
     }
   };
   const handleLock   = useCallback(() => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); },[]);
+
+  // Session timeout: auto-lock after 30 min of inactivity
+  useEffect(() => {
+    if (!role) return;
+    let lastActivity = Date.now();
+    const reset = () => { lastActivity = Date.now(); };
+    const events: string[] = ["mousedown","keydown","touchstart","scroll"];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivity > 30 * 60 * 1000) { handleLock(); }
+    }, 60 * 1000);
+    return () => {
+      events.forEach(e => window.removeEventListener(e, reset));
+      clearInterval(interval);
+    };
+  }, [role, handleLock]);
+
+  // Online/offline detection
+  useEffect(() => {
+    const setOn = () => setIsOnline(true);
+    const setOff = () => setIsOnline(false);
+    window.addEventListener("online", setOn);
+    window.addEventListener("offline", setOff);
+    setIsOnline(navigator.onLine);
+    return () => { window.removeEventListener("online", setOn); window.removeEventListener("offline", setOff); };
+  }, []);
 
   const openDedupModal = useCallback(()=>{
     const strip=(p:string)=>p.replace(/[\s\-()+.]/g,"").toLowerCase();
@@ -447,7 +479,9 @@ export default function App() {
   const addContactManually = useCallback(() => {
     const f=addContactForm;
     if(!f.name.trim()&&!f.phone.trim()){showToast("Name or phone is required.");return;}
-    const c={id:uid(),name:f.name.trim(),phone:f.phone.trim(),email:f.email.trim(),phone2:"",storeType:"",company:"",storeId:"",renId:"",agentName:"",date:todayKey(),campaign:f.campaign.trim(),remarks:f.remarks.trim(),status:f.status||"contacted",leadStatus:null,salesAgent:f.salesAgent||"",lastTouched:todayKey(),callbackDate:"",notes:[],history:[]};
+    const email=f.email.trim();
+    if(email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){showToast("Invalid email format.");return;}
+    const c={id:uid(),name:f.name.trim(),phone:f.phone.trim(),email,phone2:"",storeType:"",company:"",storeId:"",renId:"",agentName:"",date:todayKey(),campaign:f.campaign.trim(),remarks:f.remarks.trim(),status:f.status||"contacted",leadStatus:null,salesAgent:f.salesAgent||"",lastTouched:todayKey(),callbackDate:"",notes:[],history:[]};
     setContacts(prev=>{ const n=[...prev,c]; saveLocalContacts(n); upsertContact(c); return n; });
     showToast(`Contact "${f.name||f.phone}" added.`);
     setShowAddContactModal(false);
@@ -463,11 +497,20 @@ export default function App() {
   const deleteContactCb = useCallback((contactId:string) => {
     setContacts(prev=>{
       const c=prev.find((x:any)=>x.id===contactId);
-      if(c) setDeletionHistory(h=>[{hid:crypto.randomUUID(),label:c.name||c.phone||"Contact",contacts:[c],timestamp:Date.now()},...h.slice(0,19)]);
+      if(c) {
+        const hid=crypto.randomUUID();
+        setDeletionHistory(h=>[{hid,label:c.name||c.phone||"Contact",contacts:[c],timestamp:Date.now()},...h.slice(0,19)]);
+        const restore = () => {
+          setContacts(p => { if(p.find((x:any)=>x.id===c.id)) return p; const n=[...p,c]; saveLocalContacts(n); upsertContact(c); return n; });
+          setDeletionHistory(h => h.filter(e=>e.hid!==hid));
+          showToast(`Restored "${c.name||c.phone||"contact"}"`);
+        };
+        showToast(`Deleted "${c.name||c.phone||"contact"}"`, {label:"Undo", fn:restore});
+      }
       const n=prev.filter((x:any)=>x.id!==contactId); saveLocalContacts(n); deleteRemoteContact(contactId); return n;
     });
     setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
-  },[]);
+  },[showToast]);
 
   const handleContactToggle = useCallback((id:string|null)=>setOpenContactId(prev=>prev===id?null:id),[]);
   const handleContactSelect = useCallback((id:string)=>setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }),[]);
@@ -561,6 +604,7 @@ export default function App() {
       const stripPhone = (p:string) => p.replace(/[\s\-()+.]/g,"").toLowerCase();
 
       const seen: any = {};
+      let skippedStatus = 0; let skippedNoKey = 0;
 
       for (let i = 1; i < lines.length; i++) {
         const row = parseRow(lines[i]);
@@ -571,7 +615,7 @@ export default function App() {
         if (interestRaw==="yes")                             bucket="interested";
         else if (/^ans/.test(statusRaw))                     bucket="contacted";
         else if (/callback|call back|\bcb\b/.test(statusRaw)) bucket="callback";
-        if (!bucket) continue;
+        if (!bucket) { skippedStatus++; continue; }
 
         const name      = iName      >= 0 ? row[iName].trim()      : "";
         const phone     = iPhone     >= 0 ? row[iPhone].trim()     : "";
@@ -585,7 +629,7 @@ export default function App() {
         const date      = normalizeDate(iDate >= 0 ? row[iDate].trim() : "");
         const email     = iEmail     >= 0 ? row[iEmail].trim()     : "";
         const key       = (phone ? stripPhone(phone) : name.toLowerCase().trim());
-        if (!key) continue;
+        if (!key) { skippedNoKey++; continue; }
 
         const existing = seen[key];
         const inP = PRIORITY[bucket]||0;
@@ -612,7 +656,8 @@ export default function App() {
       });
 
       setContactLimit(100);
-      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}"${crossDups>0?` · ${crossDups} duplicate phone${crossDups!==1?"s":""} found in other campaigns`:""}.`);
+      const skippedTotal = skippedStatus + skippedNoKey;
+      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}"${crossDups>0?` · ${crossDups} duplicate phone${crossDups!==1?"s":""} found in other campaigns`:""}${skippedTotal>0?` · ${skippedTotal} row${skippedTotal!==1?"s":""} skipped (${skippedStatus} non-qualifying status, ${skippedNoKey} no name/phone)`:""}.`);
       setImporting(false);
     };
     reader.onerror = () => { showToast("Failed to read file — try again."); setImporting(false); };
@@ -792,7 +837,7 @@ export default function App() {
 
   const exportFilteredContacts = (rows: any[]) => {
     if(!rows.length){ showToast("No contacts to export"); return; }
-    const headers = ["name","phone","phone2","storeType","company","storeId","renId","campaign","status","salesAgent","lastTouched","callbackDate","remarks"];
+    const headers = ["name","phone","phone2","email","storeType","company","storeId","renId","campaign","status","salesAgent","lastTouched","callbackDate","remarks"];
     const csv = [headers.join(","), ...rows.map(c=>headers.map(h=>`"${String((c as any)[h]||"").replace(/"/g,'""')}"`).join(","))].join("\n");
     const a = document.createElement("a"); a.href = "data:text/csv;charset=utf-8,"+encodeURIComponent(csv);
     a.download = `blurb_contacts_${todayKey()}.csv`;
@@ -2464,6 +2509,7 @@ export default function App() {
             </div>
           </div>
         )}
-        {toast&&<div className="toast">{toast}</div>}
+        {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,background:"#ef4444",color:"#fff",fontSize:12,fontWeight:700,padding:"6px 12px",textAlign:"center",zIndex:9999}}>⚠️ Offline — changes may not save until reconnected</div>}
+        {toast&&<div className="toast" style={{display:"flex",alignItems:"center",gap:12}}><span>{toast}</span>{toastAction&&<button onClick={()=>{toastAction.fn();if(toastTimerRef.current)clearTimeout(toastTimerRef.current);setToast(null);setToastAction(null);}} style={{background:"transparent",border:"1.5px solid rgba(255,255,255,.4)",color:"#fff",fontFamily:"inherit",fontSize:12,fontWeight:700,padding:"3px 12px",borderRadius:6,cursor:"pointer"}}>{toastAction.label}</button>}</div>}
       </div> </> );
 }
