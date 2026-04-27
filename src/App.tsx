@@ -241,12 +241,11 @@ export default function App() {
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
   // Auto-computed stats for telesales tasks linked to a campaign
   const linkedTaskStats = useMemo(()=>{
-    const today=todayKey();
     const result:Record<string,Record<string,{total:number,answered:number,notAnswered:number,interested:number}>>={};
     (db.days?.[currentDate]?.tasks||[]).filter((t:any)=>t.linkedCampaign).forEach((t:any)=>{
       result[t.id]={};
       (t.assignedMembers||[]).forEach((m:any)=>{
-        const mine=contacts.filter((c:any)=>c.campaign===t.linkedCampaign&&c.salesAgent===m.name&&c.lastTouched===today);
+        const mine=contacts.filter((c:any)=>c.campaign===t.linkedCampaign&&c.salesAgent===m.name&&c.lastTouched===currentDate);
         result[t.id][m.id]={
           total:mine.length,
           answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,
