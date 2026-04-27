@@ -65,6 +65,7 @@ export default function App() {
   const [assignCounts, setAssignCounts]           = useState<Record<string,string>>({});
   const [assignFromUnassigned, setAssignFromUnassigned] = useState(true);
   const [assignMode, setAssignMode]               = useState<"even"|"custom">("even");
+  const [assignCampaignFilter, setAssignCampaignFilter] = useState<string>("");
   const [assignSelectedMembers, setAssignSelectedMembers] = useState<Set<string>>(new Set());
   const [lastDistributionSnapshot, setLastDistributionSnapshot] = useState<{id:string,prevAgent:string|null}[]|null>(null);
   const [showBulkReassignModal, setShowBulkReassignModal] = useState(false);
@@ -526,7 +527,10 @@ export default function App() {
   },[]);
 
   const assignContactsRandomly = () => {
-    const pool = [...contacts].filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
+    const pool = [...contacts].filter((c:any)=>
+      !(assignFromUnassigned&&c.salesAgent) &&
+      (!assignCampaignFilter || c.campaign===assignCampaignFilter)
+    );
     for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
     const assignments: Record<string,string> = {};
     if(assignMode==="even"){
@@ -2361,7 +2365,11 @@ export default function App() {
           </div>
         )}
         {showAssignModal&&(()=>{
-          const pool=allContacts.filter((c:any)=>!(assignFromUnassigned&&c.salesAgent));
+          const campaigns=[...new Set(allContacts.map((c:any)=>c.campaign).filter(Boolean))].sort();
+          const pool=allContacts.filter((c:any)=>
+            !(assignFromUnassigned&&c.salesAgent) &&
+            (!assignCampaignFilter || c.campaign===assignCampaignFilter)
+          );
           const selectedList=(db.members||[]).filter((m:any)=>assignSelectedMembers.has(m.id));
           const customTotal=Object.entries(assignCounts).filter(([id])=>assignSelectedMembers.has(id)).reduce((s,[,v])=>s+(parseInt(v)||0),0);
           const perMember=selectedList.length>0?Math.ceil(pool.length/selectedList.length):0;
@@ -2380,6 +2388,16 @@ export default function App() {
                     ? "Select members — contacts will be split as evenly as possible among them."
                     : "Select members and set exactly how many contacts each one receives."}
                 </div>
+                {/* Campaign filter */}
+                {campaigns.length>0&&(
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:6}}>Campaign</div>
+                    <select value={assignCampaignFilter} onChange={e=>setAssignCampaignFilter(e.target.value)} style={{width:"100%",border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",background:"#fff"}}>
+                      <option value="">All campaigns</option>
+                      {campaigns.map((c:string)=><option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                )}
                 {/* Pool toggle */}
                 <label style={{display:"flex",alignItems:"center",gap:8,fontSize:13,marginBottom:14,cursor:"pointer"}}>
                   <input type="checkbox" checked={assignFromUnassigned} onChange={e=>setAssignFromUnassigned(e.target.checked)} style={{width:15,height:15,cursor:"pointer"}}/>
