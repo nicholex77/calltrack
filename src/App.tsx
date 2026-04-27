@@ -12,6 +12,8 @@ import { ContactRow } from "./components/ContactRow";
 import { PipelineCard } from "./components/PipelineCard";
 import { PinScreen } from "./components/PinScreen";
 import { AppShell } from "./components/AppShell";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 //  Main App 
 export default function App() {
@@ -890,22 +892,12 @@ export default function App() {
     showToast(`Reassigned ${ids.size} contact${ids.size!==1?"s":""} to ${bulkReassignTarget}`);
   };
 
-  const loadScript = (src: string) => new Promise<void>((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-    const s = document.createElement("script"); s.src = src; s.onload = () => resolve(); s.onerror = reject;
-    document.head.appendChild(s);
-  });
-
   const exportToPDF = async () => {
     const rows = getPreviewRows();
     if(rows.length===0){ showToast("No data to export"); return; }
     setExporting(true);
     showToast("Generating PDF…");
     try {
-      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
-      // @ts-ignore
-      const { jsPDF } = (window as any).jspdf;
       const doc = new jsPDF({ orientation:"landscape", unit:"pt", format:"a4" });
 
       // Title
@@ -920,8 +912,7 @@ export default function App() {
       let summaryEndY = 75;
       if(exportTab==="telesales"){
         const summ = buildTelesalesSummaryStats(rows);
-        // @ts-ignore
-        doc.autoTable({
+        autoTable(doc, {
           head:[["Metric","Value","Rate"]],
           body:[
             ["Total Calls Made", String(summ.totalCalls), "—"],
@@ -936,14 +927,12 @@ export default function App() {
           columnStyles:{1:{fontStyle:"bold"},2:{textColor:[26,86,219]}},
           margin:{left:40},
         });
-        // @ts-ignore
         summaryEndY = (doc as any).lastAutoTable.finalY + 14;
       } else if(exportTab==="whatsapp"){
         const totals = rows.reduce((a:any,r:any)=>({sent:a.sent+(r.Sent||0),replied:a.replied+(r.Replied||0),closed:a.closed+(r.Closed||0)}),{sent:0,replied:0,closed:0});
         const replyRate=totals.sent>0?Math.round(totals.replied/totals.sent*100):0;
         const closeRate=totals.replied>0?Math.round(totals.closed/totals.replied*100):0;
-        // @ts-ignore
-        doc.autoTable({
+        autoTable(doc, {
           head:[["Metric","Value","Rate"]],
           body:[
             ["Total Sent",   String(totals.sent),   "—"],
@@ -957,12 +946,10 @@ export default function App() {
           columnStyles:{1:{fontStyle:"bold"},2:{textColor:[26,86,219]}},
           margin:{left:40},
         });
-        // @ts-ignore
         summaryEndY = (doc as any).lastAutoTable.finalY + 14;
       } else {
         const done=rows.filter((r:any)=>r.Status==="Done").length;
-        // @ts-ignore
-        doc.autoTable({
+        autoTable(doc, {
           head:[["Metric","Value"]],
           body:[["Tasks Done",`${done}/${rows.length}`],["Pending",String(rows.length-done)]],
           startY:75,
@@ -972,14 +959,12 @@ export default function App() {
           columnStyles:{1:{fontStyle:"bold"}},
           margin:{left:40},
         });
-        // @ts-ignore
         summaryEndY = (doc as any).lastAutoTable.finalY + 14;
       }
 
       // Main data table
       const headers = Object.keys(rows[0]);
-      // @ts-ignore
-      doc.autoTable({
+      autoTable(doc, {
         head:[headers],
         body:rows.map((r:any)=>headers.map(h=>String(r[h]??""))) ,
         startY:summaryEndY,
