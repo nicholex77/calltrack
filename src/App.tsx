@@ -607,18 +607,20 @@ export default function App() {
       const stripPhone = (p:string) => p.replace(/[\s\-()+.]/g,"").toLowerCase();
 
       const seen: any = {};
-      let skippedStatus = 0; let skippedNoKey = 0;
+      let skippedNoKey = 0;
 
       for (let i = 1; i < lines.length; i++) {
         const row = parseRow(lines[i]);
         const statusRaw   = (iStatus   >= 0 ? row[iStatus]   : "").trim().toLowerCase();
         const interestRaw = (iInterest >= 0 ? row[iInterest] : "").trim().toLowerCase();
 
-        let bucket: string|null = null;
-        if (interestRaw==="yes")                             bucket="interested";
-        else if (/^ans/.test(statusRaw))                     bucket="contacted";
+        let bucket: string = "contacted";
+        if (interestRaw==="yes")                              bucket="interested";
+        else if (/^ans/.test(statusRaw))                      bucket="contacted";
         else if (/callback|call back|\bcb\b/.test(statusRaw)) bucket="callback";
-        if (!bucket) { skippedStatus++; continue; }
+        else if (/^int/.test(statusRaw))                      bucket="interested";
+        else if (/not.ans|no.ans|unan/i.test(statusRaw))      bucket="not_answered";
+        else if (/hang|reject/i.test(statusRaw))              bucket="hangup";
 
         const name      = iName      >= 0 ? row[iName].trim()      : "";
         const phone     = iPhone     >= 0 ? row[iPhone].trim()     : "";
@@ -642,7 +644,7 @@ export default function App() {
       }
 
       const imported = Object.values(seen) as any[];
-      if (!imported.length) { showToast("No qualifying rows found (need Answered/Callback/Interested)."); setImporting(false); return; }
+      if (!imported.length) { showToast("No rows found — check that the file has a name or phone column."); setImporting(false); return; }
 
       // Compute cross-campaign duplicates from current snapshot before mutating
       const existingPhones=new Set(contacts.filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
@@ -659,8 +661,7 @@ export default function App() {
       });
 
       setContactLimit(100);
-      const skippedTotal = skippedStatus + skippedNoKey;
-      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}"${crossDups>0?` · ${crossDups} duplicate phone${crossDups!==1?"s":""} found in other campaigns`:""}${skippedTotal>0?` · ${skippedTotal} row${skippedTotal!==1?"s":""} skipped (${skippedStatus} non-qualifying status, ${skippedNoKey} no name/phone)`:""}.`);
+      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}"${crossDups>0?` · ${crossDups} duplicate phone${crossDups!==1?"s":""} found in other campaigns`:""}${skippedNoKey>0?` · ${skippedNoKey} row${skippedNoKey!==1?"s":""} skipped (no name or phone)`:""}.`);
       setImporting(false);
     };
     reader.onerror = () => { showToast("Failed to read file — try again."); setImporting(false); };
