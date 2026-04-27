@@ -3,7 +3,13 @@ import { CONTACT_STATUS_META, CONTACT_LEAD_META } from "../lib/constants";
 import { staleness, initials, fmt, fmtNoteTime, scoreContact } from "../lib/utils";
 import { safeCopy } from "../lib/security";
 
-export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected, selectMode, isManager, members, onToggle, onSelect, onSalesAgent, onLeadStatus, onStatus, onCallbackDate, onAddNote, authorName, onDelete, onToast, waTemplates }: any) {
+const inputStyle: React.CSSProperties = {
+  width: "100%", border: "1.5px solid #e5e5e5", borderRadius: 7,
+  padding: "5px 8px", fontSize: 13, fontFamily: "inherit",
+  outline: "none", color: "#111", background: "#fff", boxSizing: "border-box",
+};
+
+export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected, selectMode, isManager, members, onToggle, onSelect, onSalesAgent, onLeadStatus, onStatus, onCallbackDate, onUpdate, onAddNote, authorName, onDelete, onToast, waTemplates }: any) {
   const sm = CONTACT_STATUS_META[c.status] || CONTACT_STATUS_META.contacted;
   const lm = c.leadStatus ? CONTACT_LEAD_META[c.leadStatus] : null;
   const st = staleness(c.lastTouched || "");
@@ -16,13 +22,31 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
   const swipeTouchStart = React.useRef<{ x: number, y: number } | null>(null);
   const didSwipe = React.useRef(false);
 
-  const fieldRow = (label: string, value: string) => !value ? null : (
+  const editRow = (label: string, field: string, value: string, type = "text") => (
     <div style={{ padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 2 }}>{label}</div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ fontSize: 13, color: "#111", wordBreak: "break-word" as const, flex: 1 }}>{value}</div>
-        <button onClick={e => { e.stopPropagation(); safeCopy(value); onToast(label + " copied"); }} style={{ padding: "2px 9px", borderRadius: 6, border: "1.5px solid #e5e5e5", background: "#fff", color: "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Copy</button>
-      </div>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>{label}</div>
+      <input
+        key={value}
+        type={type}
+        defaultValue={value}
+        style={inputStyle}
+        onFocus={e => (e.target.style.borderColor = "#1a56db")}
+        onBlur={e => { e.target.style.borderColor = "#e5e5e5"; if (e.target.value !== value) onUpdate(c.id, field, e.target.value); }}
+      />
+    </div>
+  );
+
+  const editTextarea = (label: string, field: string, value: string) => (
+    <div style={{ padding: "8px 0", borderBottom: "1px solid #f0f0f0", gridColumn: "1 / -1" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>{label}</div>
+      <textarea
+        key={value}
+        defaultValue={value}
+        rows={2}
+        style={{ ...inputStyle, resize: "vertical" }}
+        onFocus={e => (e.target.style.borderColor = "#1a56db")}
+        onBlur={e => { e.target.style.borderColor = "#e5e5e5"; if (e.target.value !== value) onUpdate(c.id, field, e.target.value); }}
+      />
     </div>
   );
 
@@ -66,27 +90,23 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
       </div>
       {isOpen && (
         <div onClick={e => e.stopPropagation()} style={{ borderTop: "1.5px solid #e8efff", padding: "16px 16px 14px", background: "#f8faff", animation: "fadeUp .15s ease both" }}>
+          {/* Editable fields */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px" }}>
-            {fieldRow("Phone", c.phone || "")}
-            {fieldRow("Mobile / Alt. Phone", c.phone2 || "")}
-            {c.email ? (
-              <div style={{ padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 2 }}>Email</div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <a href={`mailto:${c.email}`} onClick={e => e.stopPropagation()} style={{ fontSize: 13, color: "#1a56db", textDecoration: "none", fontWeight: 600, wordBreak: "break-all" as const, flex: 1 }}>{c.email}</a>
-                  <button onClick={e => { e.stopPropagation(); safeCopy(c.email); onToast("Email copied"); }} style={{ padding: "2px 9px", borderRadius: 6, border: "1.5px solid #e5e5e5", background: "#fff", color: "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", flexShrink: 0 }}>Copy</button>
-                </div>
-              </div>
-            ) : null}
-            {fieldRow("Store ID", c.storeId || "")}
-            {fieldRow("REN ID", c.renId || "")}
-            {fieldRow("Store Type", c.storeType || "")}
-            {fieldRow("Company / Agency", c.company || "")}
-            {fieldRow("Agent (from sheet)", c.agentName || "")}
-            {fieldRow("Date", c.date ? fmt(c.date) : "")}
-            {fieldRow("Campaign", c.campaign || "")}
-            {fieldRow("Remarks / State", c.remarks || "")}
+            {editRow("Name", "name", c.name || "")}
+            {editRow("Phone", "phone", c.phone || "")}
+            {editRow("Mobile / Alt. Phone", "phone2", c.phone2 || "")}
+            {editRow("Email", "email", c.email || "", "email")}
+            {editRow("Store ID", "storeId", c.storeId || "")}
+            {editRow("REN ID", "renId", c.renId || "")}
+            {editRow("Store Type", "storeType", c.storeType || "")}
+            {editRow("Company / Agency", "company", c.company || "")}
+            {editRow("Agent (from sheet)", "agentName", c.agentName || "")}
+            {editRow("Date", "date", c.date || "", "date")}
+            {editRow("Campaign", "campaign", c.campaign || "")}
+            {editTextarea("Remarks / State", "remarks", c.remarks || "")}
           </div>
+
+          {/* Call + Lead status */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 14, paddingTop: 14, borderTop: "1.5px solid #e8efff" }}>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 6 }}>Call Status</div>
@@ -116,21 +136,25 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               </div>
             </div>
           </div>
+
+          {/* Callback date */}
           {c.status === "callback" && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#d97706", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 6 }}>Callback Date</div>
               <input type="date" value={c.callbackDate || ""} onChange={e => onCallbackDate(c.id, e.target.value)} style={{ border: "1.5px solid #fde68a", borderRadius: 9, padding: "7px 11px", fontSize: 13, fontFamily: "inherit", color: "#111", background: "#fffbeb", outline: "none", width: "100%" }} />
             </div>
           )}
-          {isManager && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 6 }}>Sales Agent</div>
-              <select value={c.salesAgent || ""} onChange={e => onSalesAgent(c.id, e.target.value)} style={{ width: "100%", border: "1.5px solid #e5e5e5", borderRadius: 9, padding: "7px 10px", fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff" }}>
-                <option value="">Unassigned</option>
-                {(members || []).map((m: any) => <option key={m.id} value={m.name}>{m.name}</option>)}
-              </select>
-            </div>
-          )}
+
+          {/* Sales Agent — available to all roles */}
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 6 }}>Sales Agent</div>
+            <select value={c.salesAgent || ""} onChange={e => onSalesAgent(c.id, e.target.value)} style={{ width: "100%", border: "1.5px solid #e5e5e5", borderRadius: 9, padding: "7px 10px", fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff" }}>
+              <option value="">Unassigned</option>
+              {(members || []).map((m: any) => <option key={m.id} value={m.name}>{m.name}</option>)}
+            </select>
+          </div>
+
+          {/* Activity history */}
           {(c.history || []).length > 0 && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Activity <span style={{ color: "#1a56db" }}>({(c.history || []).length})</span></div>
@@ -148,6 +172,8 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               </div>
             </div>
           )}
+
+          {/* WA Templates */}
           {(waTemplates || []).length > 0 && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: showTpl ? 8 : 0 }}>
@@ -170,6 +196,8 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               )}
             </div>
           )}
+
+          {/* Notes */}
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Notes {(c.notes || []).length > 0 && <span style={{ color: "#1a56db" }}>({(c.notes || []).length})</span>}</div>
             {(c.notes || []).length > 0 && (
@@ -187,8 +215,13 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               <button onClick={() => { if (noteText.trim()) { onAddNote(c.id, noteText, authorName); setNoteText(""); } }} style={{ padding: "6px 12px", borderRadius: 8, border: "1.5px solid #1a56db", background: "#1a56db", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Add</button>
             </div>
           </div>
+
+          {/* Footer actions */}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-            <button onClick={() => { const txt = [`Name: ${c.name || ""}`, `Phone: ${c.phone || ""}`, `Mobile / Alt. Phone: ${c.phone2 || ""}`, `Email: ${c.email || ""}`, `Store ID: ${c.storeId || ""}`, `REN ID: ${c.renId || ""}`, `Store Type: ${c.storeType || ""}`, `Company / Agency: ${c.company || ""}`, `Status: ${sm.label}`, `Agent (sheet): ${c.agentName || ""}`, `Date: ${c.date ? fmt(c.date) : ""}`, `Campaign: ${c.campaign || ""}`, `Remarks: ${c.remarks || ""}`, `Sales Agent: ${c.salesAgent || ""}`].filter(l => !l.endsWith(": ")).join("\n"); safeCopy(txt); onToast("All details copied"); }} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "1.5px solid #1a56db", background: "#fff", color: "#1a56db", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Copy All</button>
+            <button onClick={() => {
+              const txt = [`Name: ${c.name || ""}`, `Phone: ${c.phone || ""}`, `Mobile / Alt. Phone: ${c.phone2 || ""}`, `Email: ${c.email || ""}`, `Store ID: ${c.storeId || ""}`, `REN ID: ${c.renId || ""}`, `Store Type: ${c.storeType || ""}`, `Company / Agency: ${c.company || ""}`, `Status: ${sm.label}`, `Agent (sheet): ${c.agentName || ""}`, `Date: ${c.date ? fmt(c.date) : ""}`, `Campaign: ${c.campaign || ""}`, `Remarks: ${c.remarks || ""}`, `Sales Agent: ${c.salesAgent || ""}`].filter(l => !l.endsWith(": ")).join("\n");
+              safeCopy(txt); onToast("All details copied");
+            }} style={{ flex: 1, padding: "8px 0", borderRadius: 9, border: "1.5px solid #1a56db", background: "#fff", color: "#1a56db", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Copy All</button>
             {isManager && <button onClick={() => { if (window.confirm(`Delete ${c.name || "this contact"}?`)) { onDelete(c.id); onToggle(null); } }} style={{ padding: "8px 16px", borderRadius: 9, border: "1.5px solid #ef4444", background: "#fff", color: "#ef4444", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Delete</button>}
           </div>
         </div>

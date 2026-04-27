@@ -445,25 +445,29 @@ export default function App() {
   const updateContactLeadStatusCb = useCallback((contactId:string, leadStatus:string|null, author?:string) => {
     mutateContact(contactId, c=>{
       if(c.leadStatus!==leadStatus){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"lead",from:c.leadStatus||"none",to:leadStatus||"none",by:author||"",timestamp:new Date().toISOString()}); }
-      c.leadStatus=leadStatus; c.lastTouched=todayKey();
+      c.leadStatus=leadStatus; c.lastTouched=currentDate;
     });
-  },[mutateContact]);
+  },[mutateContact,currentDate]);
 
   const updateContactStatus = useCallback((contactId:string, status:string, author?:string) => {
     mutateContact(contactId, c=>{
       if(c.status!==status){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:new Date().toISOString()}); }
-      c.status=status; c.lastTouched=todayKey();
+      c.status=status; c.lastTouched=currentDate;
     });
-  },[mutateContact]);
+  },[mutateContact,currentDate]);
 
   const updateContactCallbackDate = useCallback((contactId:string, callbackDate:string) => {
     mutateContact(contactId, c=>{ c.callbackDate=callbackDate; });
   },[mutateContact]);
 
+  const updateContactField = useCallback((contactId:string, field:string, value:string) => {
+    mutateContact(contactId, c=>{ c[field]=value; });
+  },[mutateContact]);
+
   const addContactNote = useCallback((contactId:string, text:string, author:string) => {
     if(!text.trim()) return;
-    mutateContact(contactId, c=>{ if(!c.notes)c.notes=[]; c.notes.unshift({id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}); c.lastTouched=todayKey(); });
-  },[mutateContact]);
+    mutateContact(contactId, c=>{ if(!c.notes)c.notes=[]; c.notes.unshift({id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}); c.lastTouched=currentDate; });
+  },[mutateContact,currentDate]);
 
   const bulkUpdateContactStatus = useCallback((status:string, ids:Set<string>) => {
     const size=ids.size; const ts=new Date().toISOString(); const today=todayKey();
@@ -1568,6 +1572,7 @@ export default function App() {
                       onLeadStatus={updateContactLeadStatusCb}
                       onStatus={updateContactStatus}
                       onCallbackDate={updateContactCallbackDate}
+                      onUpdate={updateContactField}
                       onAddNote={addContactNote}
                       authorName={isManager?"Manager":(members.find((m:any)=>m.id===loggedInMemberId)?.name||"Member")}
                       onDelete={deleteContactCb}
