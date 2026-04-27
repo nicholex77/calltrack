@@ -11,6 +11,7 @@ import { TargetBar } from "./components/TargetBar";
 import { ContactRow } from "./components/ContactRow";
 import { PipelineCard } from "./components/PipelineCard";
 import { PinScreen } from "./components/PinScreen";
+import { AppShell } from "./components/AppShell";
 
 //  Main App 
 export default function App() {
@@ -1197,50 +1198,7 @@ export default function App() {
   const previewRows = getPreviewRows();
 
   return (
-    <> <style>{CSS}</style> <div style={{minHeight:"100vh",background:"#fff"}}> {/* NAV */}
-        <div style={{borderBottom:"1px solid #ebebeb",background:"#fff",position:"sticky",top:0,zIndex:50}}>
-          <div style={{maxWidth:"100%",margin:"0 auto",padding:"0 32px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56,gap:12}}>
-            <div style={{display:"flex",alignItems:"center",gap:10}}>
-              <div style={{width:30,height:30,borderRadius:9,background:"#1a56db",display:"flex",alignItems:"center",justifyContent:"center"}}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.8 19.79 19.79 0 01.22 1.18 2 2 0 012.22 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.91a16 16 0 006.13 6.13l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-              </div>
-              <span style={{fontWeight:800,fontSize:15,letterSpacing:-.4,color:"#1a56db"}}>blurB</span>
-              <span style={{fontSize:11,color:"#888",background:"#f3f3f3",padding:"2px 8px",borderRadius:5,fontWeight:600}}>mudah.my</span>
-              {syncing&&<span style={{fontSize:11,color:"#888",fontWeight:600,display:"flex",alignItems:"center",gap:4}}><span style={{width:6,height:6,borderRadius:"50%",background:"#f59e0b",display:"inline-block",animation:"pulse 1s infinite"}}/>Syncing…</span>}
-              {syncError&&!syncing&&<span style={{fontSize:11,color:"#ef4444",fontWeight:700,background:"#fff1f2",border:"1px solid #fecaca",padding:"2px 8px",borderRadius:20}}>⚠ Unsaved</span>}
-            </div>
-            {/* Desktop nav */}
-            <div className="desktop-nav" style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
-              {navItems.map(([p,label])=>(
-                <button key={p} className={`nav-link ${page===p?"active":""}`} onClick={()=>setPage(p)} style={{display:"flex",alignItems:"center",gap:4}}>
-                  {label}{p==="daily"&&hasUnsaved&&<span className="unsaved-dot"/>}
-                </button>
-              ))}
-              <div style={{width:1,height:20,background:"#e5e5e5",margin:"0 4px"}}/>
-              <div style={{fontSize:11,fontWeight:700,color:isManager?"#1a56db":"#059669",background:isManager?"#eff6ff":"#ecfdf5",padding:"3px 10px",borderRadius:20}}>{isManager?"Manager":"Telesales"}</div>
-              <button className="ghost-btn" style={{padding:"5px 12px",fontSize:12}} onClick={handleLock}>Lock</button>
-            </div>
-            {/* Mobile hamburger */}
-            <button className="hamburger" onClick={()=>setMobileNavOpen(v=>!v)}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-            </button>
-          </div>
-          {/* Mobile dropdown nav */}
-          {mobileNavOpen&&(
-            <div className="mobile-nav" onClick={()=>setMobileNavOpen(false)}>
-              {navItems.map(([p,label])=>(
-                <button key={p} className={`nav-link ${page===p?"active":""}`} onClick={()=>setPage(p)} style={{display:"flex",alignItems:"center",gap:6,width:"100%",textAlign:"left"}}>
-                  {label}{p==="daily"&&hasUnsaved&&<span className="unsaved-dot"/>}
-                </button>
-              ))}
-              <div style={{borderTop:"1px solid #f0f0f0",marginTop:8,paddingTop:8,display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div style={{fontSize:11,fontWeight:700,color:isManager?"#1a56db":"#059669"}}>{isManager?"Manager":"Telesales Member"}</div>
-                <button className="ghost-btn" style={{padding:"5px 12px",fontSize:12}} onClick={handleLock}>Lock</button>
-              </div>
-            </div>
-          )}
-        </div>
-        <div className="page-wrap" style={{maxWidth:"100%",margin:"0 auto",padding:"24px 32px 80px"}}> {/*  DAILY  */}
+    <> <style>{CSS}</style> <AppShell page={page} setPage={setPage} navItems={navItems as [string,string][]} isManager={isManager} syncing={syncing} syncError={syncError} isOnline={isOnline} hasUnsaved={hasUnsaved} onLock={handleLock}> {/*  DAILY  */}
           {page==="daily"&&(
             <div className="fade-up">
               <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,gap:12,flexWrap:"wrap"}}>
@@ -2273,7 +2231,7 @@ export default function App() {
               </div>
             </div>
             </div> )}
-        </div> {/*  MODALS  */}
+        {/*  MODALS  */}
         {modal==="addTask"&&(
           <div className="modal-overlay" onClick={()=>setModal(null)}> <div className="modal" onClick={e=>e.stopPropagation()}> <div style={{fontWeight:800,fontSize:18,marginBottom:4,letterSpacing:-.3}}>New Task</div> <div style={{fontSize:13,color:"#888",marginBottom:18}}>Choose a type, assign members, and set a title</div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Type</div> <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{Object.entries(TASK_TYPES).map(([k,v])=><button key={k} className={`type-btn ${newTaskType===k?"active":""}`} onClick={()=>setNewTaskType(k)}>{v.label}</button>)}</div> </div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Assign Telesales Members <span style={{color:"#999",fontWeight:400}}>(select one or more)</span></div> {members.length===0?(
                   <div style={{padding:"10px 14px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:10,fontSize:13,color:"#92400e"}}>No members. <span style={{fontWeight:700,cursor:"pointer",textDecoration:"underline"}} onClick={()=>{setModal(null);setPage("members");}}>Add one →</span></div> ):(
@@ -2511,5 +2469,5 @@ export default function App() {
         )}
         {!isOnline&&<div style={{position:"fixed",top:0,left:0,right:0,background:"#ef4444",color:"#fff",fontSize:12,fontWeight:700,padding:"6px 12px",textAlign:"center",zIndex:9999}}>⚠️ Offline — changes may not save until reconnected</div>}
         {toast&&<div className="toast" style={{display:"flex",alignItems:"center",gap:12}}><span>{toast}</span>{toastAction&&<button onClick={()=>{toastAction.fn();if(toastTimerRef.current)clearTimeout(toastTimerRef.current);setToast(null);setToastAction(null);}} style={{background:"transparent",border:"1.5px solid rgba(255,255,255,.4)",color:"#fff",fontFamily:"inherit",fontSize:12,fontWeight:700,padding:"3px 12px",borderRadius:6,cursor:"pointer"}}>{toastAction.label}</button>}</div>}
-      </div> </> );
+      </AppShell> </> );
 }
