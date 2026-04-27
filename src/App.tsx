@@ -772,11 +772,24 @@ export default function App() {
   };
 
   const buildTelesalesRows = (dates:string[]) => {
+    const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+    const touchedOn=(c:any,date:string)=>c.lastTouched===date||(c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
     const rows:any[] = [];
     dates.forEach((date:string)=>{
       ((db.days?.[date]?.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales").forEach((task:any)=>{
         ((task.assignedMembers||[]) as any[]).forEach((m:any)=>{
-          const s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0};
+          let s:{total:number,answered:number,notAnswered:number,interested:number};
+          if(task.linkedCampaign){
+            const mine=contacts.filter((c:any)=>c.campaign===task.linkedCampaign&&c.salesAgent===m.name&&touchedOn(c,date));
+            s={
+              total:mine.length,
+              answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,
+              notAnswered:mine.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length,
+              interested:mine.filter((c:any)=>c.status==="interested").length,
+            };
+          } else {
+            s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0};
+          }
           const aRate=s.total>0?Math.round(s.answered/s.total*100):0;
           const cRate=s.answered>0?Math.round(s.interested/s.answered*100):0;
           rows.push({Date:fmt(date),Day:dayName(date),Member:m.name,Task:task.title,"Call Target":callTarget||"—",Total:s.total,Answered:s.answered,"Not Answered":s.notAnswered,Interested:s.interested,"Int. Target":intTarget||"—","Answer Rate (%)":aRate,"Conv. Rate (%)":cRate,"Target Hit?":callTarget>0?(s.total>=callTarget?"Yes":"No"):"—",Remarks:task.remarks||""});
@@ -985,8 +998,10 @@ export default function App() {
     } finally { setExporting(false); }
   };
 
-  //  Overall performance summary (for export page) 
+  //  Overall performance summary (for export page)
   const buildPerformanceSummary = () => {
+    const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+    const touchedOn=(c:any,date:string)=>c.lastTouched===date||(c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
     const ranges:{[k:string]:string[]} = { today: getExportDates("today"), week: weekDates, month: getExportDates("month") };
     return members.map((member:any) => {
       const stats:any = {};
@@ -997,8 +1012,15 @@ export default function App() {
             const assigned=((task.assignedMembers||[]) as any[]).some((m:any)=>m.id===member.id);
             if(!assigned) return;
             if(task.type==="telesales"){
-              const s=task.memberStats?.[member.id]||{};
-              total+=s.total||0; answered+=s.answered||0; interested+=s.interested||0;
+              if(task.linkedCampaign){
+                const mine=contacts.filter((c:any)=>c.campaign===task.linkedCampaign&&c.salesAgent===member.name&&touchedOn(c,date));
+                total+=mine.length;
+                answered+=mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length;
+                interested+=mine.filter((c:any)=>c.status==="interested").length;
+              } else {
+                const s=task.memberStats?.[member.id]||{};
+                total+=s.total||0; answered+=s.answered||0; interested+=s.interested||0;
+              }
             }
             if(task.type==="whatsapp"){
               ((task.campaigns||[]) as any[]).forEach((c:any)=>{ sent+=c.sent||0; replied+=c.replied||0; closed+=c.closed||0; });
@@ -1341,13 +1363,6 @@ export default function App() {
                 </div>
                 {/* Detail panel */}
                 <div className="detail-panel">
-                  {/* Mobile: show + and task list above detail */}
-                  <div style={{display:"none"}} className="mobile-task-bar">
-                    <div style={{display:"flex",gap:8,marginBottom:12,overflowX:"auto",paddingBottom:4}}>
-                      {dayTasks.map((task:any)=><button key={task.id} onClick={()=>setSelectedTaskId(task.id)} style={{whiteSpace:"nowrap",padding:"6px 12px",borderRadius:20,border:`1.5px solid ${task.id===selectedTaskId?"#1a56db":"#e5e5e5"}`,background:task.id===selectedTaskId?"#eff6ff":"#fff",color:task.id===selectedTaskId?"#1a56db":"#555",fontSize:12,fontWeight:600,cursor:"pointer"}}>{task.title}</button>)}
-                      <button onClick={()=>{setNewTaskMemberIds([]);setModal("addTask");}} style={{whiteSpace:"nowrap",padding:"6px 12px",borderRadius:20,border:"1.5px solid #1a56db",background:"#1a56db",color:"#fff",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Add</button>
-                    </div>
-                  </div>
                   {!selectedTask?(
                     <div style={{textAlign:"center",padding:"80px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16}}>
                       <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>Select a task to view</div>
@@ -2136,13 +2151,26 @@ export default function App() {
             const me = members.find((m:any)=>m.id===loggedInMemberId);
             if(!me) return <div style={{textAlign:"center",padding:"60px 20px",color:"#bbb",fontSize:14}}>No member profile linked. Please log in again and select your name.</div>;
             const ranges:{[k:string]:string[]} = { today:[todayKey()], week:weekDates, month:(()=>{const d:string[]=[];const t=todayKey();for(let i=29;i>=0;i--)d.push(addDays(t,-i));return d;})() };
+            const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+            const touchedOn=(c:any,date:string)=>c.lastTouched===date||(c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
             const rangeStats:any = Object.fromEntries(Object.entries(ranges).map(([range,dates])=>{
               let total=0,answered=0,notAnswered=0,interested=0,sent=0,replied=0,closed=0,generalDone=0,generalTotal=0;
               dates.forEach((date:string)=>{
                 ((db.days?.[date]?.tasks||[]) as any[]).forEach((task:any)=>{
                   const assigned=((task.assignedMembers||[]) as any[]).some((m:any)=>m.id===me!.id);
                   if(!assigned) return;
-                  if(task.type==="telesales"){const s=task.memberStats?.[me!.id]||{};total+=s.total||0;answered+=s.answered||0;notAnswered+=s.notAnswered||0;interested+=s.interested||0;}
+                  if(task.type==="telesales"){
+                    if(task.linkedCampaign){
+                      const mine=contacts.filter((c:any)=>c.campaign===task.linkedCampaign&&c.salesAgent===me!.name&&touchedOn(c,date));
+                      total+=mine.length;
+                      answered+=mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length;
+                      notAnswered+=mine.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length;
+                      interested+=mine.filter((c:any)=>c.status==="interested").length;
+                    } else {
+                      const s=task.memberStats?.[me!.id]||{};
+                      total+=s.total||0;answered+=s.answered||0;notAnswered+=s.notAnswered||0;interested+=s.interested||0;
+                    }
+                  }
                   if(task.type==="whatsapp"){((task.campaigns||[]) as any[]).forEach((c:any)=>{sent+=c.sent||0;replied+=c.replied||0;closed+=c.closed||0;});}
                   if(task.type==="general"){generalTotal++;if(task.memberDone?.[me!.id])generalDone++;}
                 });
