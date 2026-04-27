@@ -8,7 +8,7 @@ type Props = {
   navItems: NavItem[];
   isManager: boolean;
   syncing: boolean;
-  syncError: string | null;
+  syncError: boolean;
   isOnline: boolean;
   hasUnsaved: boolean;
   onLock: () => void;

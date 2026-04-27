@@ -44,7 +44,6 @@ export default function App() {
   const [confirmModal, setConfirmModal]           = useState<{type:string;id:string;title:string}|null>(null);
   const [loggedInMemberId, setLoggedInMemberId]   = useState<string|null>(null);
   const [sidebarOpen, setSidebarOpen]             = useState(true);
-  const [mobileNavOpen, setMobileNavOpen]         = useState(false);
   const [scriptOpen, setScriptOpen]               = useState(false);
   const [leadsOpen, setLeadsOpen]                 = useState(false);
   const [contactSearch, setContactSearch]         = useState("");
