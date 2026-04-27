@@ -160,12 +160,15 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Activity <span style={{ color: "#1a56db" }}>({(c.history || []).length})</span></div>
               <div className="history-feed">
                 {(c.history as any[]).slice(0, 10).map((h: any) => {
-                  const fromLabel = h.type === "status" ? (CONTACT_STATUS_META[h.from]?.label || h.from) : (CONTACT_LEAD_META[h.from]?.label || h.from);
-                  const toLabel = h.type === "status" ? (CONTACT_STATUS_META[h.to]?.label || h.to) : (CONTACT_LEAD_META[h.to]?.label || h.to);
+                  const fromLabel = h.type === "status" ? (CONTACT_STATUS_META[h.from]?.label || h.from) : h.type === "lead" ? (CONTACT_LEAD_META[h.from]?.label || h.from) : null;
+                  const toLabel = h.type === "status" ? (CONTACT_STATUS_META[h.to]?.label || h.to) : h.type === "lead" ? (CONTACT_LEAD_META[h.to]?.label || h.to) : null;
+                  const callLabel = h.type === "call" ? (CONTACT_STATUS_META[h.status]?.label || h.status) : null;
                   return (
                     <div key={h.id} className="history-item">
                       <div className="history-meta">{h.by || "—"} · {fmtNoteTime(h.timestamp)}</div>
-                      <div className="history-text">{h.type === "status" ? "Status" : "Lead"}: {fromLabel} → {toLabel}</div>
+                      <div className="history-text">
+                        {h.type === "call" ? `Called (${callLabel})` : h.type === "status" ? `Status: ${fromLabel} → ${toLabel}` : `Lead: ${fromLabel} → ${toLabel}`}
+                      </div>
                     </div>
                   );
                 })}

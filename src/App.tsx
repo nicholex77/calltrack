@@ -242,11 +242,15 @@ export default function App() {
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
   // Auto-computed stats for telesales tasks linked to a campaign
   const linkedTaskStats = useMemo(()=>{
+    const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
+    const touchedOn=(c:any,date:string)=>
+      c.lastTouched===date ||
+      (c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
     const result:Record<string,Record<string,{total:number,answered:number,notAnswered:number,interested:number}>>={};
     (db.days?.[currentDate]?.tasks||[]).filter((t:any)=>t.linkedCampaign).forEach((t:any)=>{
       result[t.id]={};
       (t.assignedMembers||[]).forEach((m:any)=>{
-        const mine=contacts.filter((c:any)=>c.campaign===t.linkedCampaign&&c.salesAgent===m.name&&c.lastTouched===currentDate);
+        const mine=contacts.filter((c:any)=>c.campaign===t.linkedCampaign&&c.salesAgent===m.name&&touchedOn(c,currentDate));
         result[t.id][m.id]={
           total:mine.length,
           answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,
@@ -452,8 +456,14 @@ export default function App() {
 
   const updateContactStatus = useCallback((contactId:string, status:string, author?:string) => {
     mutateContact(contactId, c=>{
-      if(c.status!==status){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:new Date().toISOString()}); }
-      c.status=status; c.lastTouched=currentDate;
+      if(!c.history) c.history=[];
+      if(c.status!==status){
+        c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:new Date().toISOString()});
+        c.status=status;
+      } else {
+        c.history.unshift({id:uid(),type:"call",status,by:author||"",timestamp:new Date().toISOString()});
+      }
+      c.lastTouched=currentDate;
     });
   },[mutateContact,currentDate]);
 
