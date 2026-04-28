@@ -248,10 +248,7 @@ export default function App() {
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
   // Auto-computed stats for telesales tasks linked to a campaign
   const linkedTaskStats = useMemo(()=>{
-    const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
-    const touchedOn=(c:any,date:string)=>
-      c.lastTouched===date ||
-      (c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
+    const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
     const result:Record<string,Record<string,{total:number,answered:number,notAnswered:number,interested:number}>>={};
     (db.days?.[currentDate]?.tasks||[]).filter((t:any)=>t.linkedCampaign).forEach((t:any)=>{
       result[t.id]={};
@@ -534,12 +531,7 @@ export default function App() {
     setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
   },[showToast]);
 
-  const handleContactToggle = useCallback((id:string|null)=>{
-    setOpenContactId(prev=>{
-      if(id && prev!==id) mutateContact(id, c=>{ c.lastTouched=currentDate; });
-      return prev===id?null:id;
-    });
-  },[mutateContact,currentDate]);
+  const handleContactToggle = useCallback((id:string|null)=>setOpenContactId(prev=>prev===id?null:id),[]);
   const handleContactSelect = useCallback((id:string)=>setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }),[]);
 
   const handleReassignStale = useCallback((agentName:string) => {
@@ -785,8 +777,7 @@ export default function App() {
   };
 
   const buildTelesalesRows = (dates:string[]) => {
-    const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
-    const touchedOn=(c:any,date:string)=>c.lastTouched===date||(c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
+    const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
     const rows:any[] = [];
     dates.forEach((date:string)=>{
       ((db.days?.[date]?.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales").forEach((task:any)=>{
@@ -996,8 +987,7 @@ export default function App() {
 
   //  Overall performance summary (for export page)
   const buildPerformanceSummary = () => {
-    const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
-    const touchedOn=(c:any,date:string)=>c.lastTouched===date||(c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
+    const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
     const ranges:{[k:string]:string[]} = { today: getExportDates("today"), week: weekDates, month: getExportDates("month") };
     return members.map((member:any) => {
       const stats:any = {};
@@ -2186,8 +2176,7 @@ export default function App() {
             const me = members.find((m:any)=>m.id===loggedInMemberId);
             if(!me) return <div style={{textAlign:"center",padding:"60px 20px",color:"#bbb",fontSize:14}}>No member profile linked. Please log in again and select your name.</div>;
             const ranges:{[k:string]:string[]} = { today:[todayKey()], week:weekDates, month:(()=>{const d:string[]=[];const t=todayKey();for(let i=29;i>=0;i--)d.push(addDays(t,-i));return d;})() };
-            const localDate=(iso:string)=>{ const d=new Date(iso); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
-            const touchedOn=(c:any,date:string)=>c.lastTouched===date||(c.history||[]).some((h:any)=>localDate(h.timestamp)===date);
+            const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
             const rangeStats:any = Object.fromEntries(Object.entries(ranges).map(([range,dates])=>{
               let total=0,answered=0,notAnswered=0,interested=0,sent=0,replied=0,closed=0,generalDone=0,generalTotal=0;
               dates.forEach((date:string)=>{

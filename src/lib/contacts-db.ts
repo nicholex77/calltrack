@@ -17,7 +17,7 @@ export const contactToDb = (c: any) => ({
   agent_name: c.agentName || null, date: c.date || null, campaign: c.campaign || null, remarks: c.remarks || null,
   status: c.status || "contacted", lead_status: c.leadStatus || null, sales_agent: c.salesAgent || null,
   last_touched: c.lastTouched || null, callback_date: c.callbackDate || null, notes: c.notes || [], history: c.history || [],
-  email: c.email || null,
+  email: c.email || null, recall_date: c.reContactDate || null,
 });
 
 export const dbToContact = (r: any) => ({
@@ -26,7 +26,7 @@ export const dbToContact = (r: any) => ({
   agentName: r.agent_name || "", date: r.date || "", campaign: r.campaign || "", remarks: r.remarks || "",
   status: r.status || "contacted", leadStatus: r.lead_status || null, salesAgent: r.sales_agent || "",
   lastTouched: r.last_touched || "", callbackDate: r.callback_date || "", notes: r.notes || [], history: r.history || [],
-  email: r.email || "",
+  email: r.email || "", reContactDate: r.recall_date || "",
 });
 
 export const loadRemoteContacts = async (): Promise<any[]> => {

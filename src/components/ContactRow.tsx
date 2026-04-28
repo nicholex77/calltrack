@@ -101,7 +101,8 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             {editRow("Store Type", "storeType", c.storeType || "")}
             {editRow("Company / Agency", "company", c.company || "")}
             {editRow("Agent (from sheet)", "agentName", c.agentName || "")}
-            {editRow("Date", "date", c.date || "", "date")}
+            {editRow("Call Date", "date", c.date || "", "date")}
+            {editRow("Re-contact Date", "reContactDate", c.reContactDate || "", "date")}
             {editRow("Campaign", "campaign", c.campaign || "")}
             {editTextarea("Remarks / State", "remarks", c.remarks || "")}
           </div>
