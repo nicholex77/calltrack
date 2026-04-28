@@ -55,6 +55,8 @@ export default function App() {
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
   const [contactSort, setContactSort]             = useState("status");
   const [contactLimit, setContactLimit]           = useState(100);
+  const [contactDateFrom, setContactDateFrom]     = useState("");
+  const [contactDateTo, setContactDateTo]         = useState("");
   const [statsTab, setStatsTab]                   = useState<"agents"|"campaigns"|"funnel"|"log"|"activity">("agents");
   const [showAddContactModal, setShowAddContactModal] = useState(false);
   const [addContactForm, setAddContactForm]       = useState({name:"",phone:"",email:"",status:"contacted",campaign:"",salesAgent:"",remarks:""});
@@ -206,7 +208,7 @@ export default function App() {
   const contactCampaigns  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.campaign||"").filter(Boolean))).sort() as string[],[allContacts]);
   const contactAgentOpts  = useMemo(()=>Array.from(new Set(allContacts.map((c:any)=>c.salesAgent||"").filter(Boolean))).sort() as string[],[allContacts]);
   const toggleContactFilter = useCallback((dim:string, val:string) => { setContactFilters(prev=>{ const a=prev[dim]||[]; return {...prev,[dim]:a.includes(val)?a.filter((v:string)=>v!==val):[...a,val]}; }); setContactLimit(100); },[]);
-  const clearContactFilters = useCallback(() => { setContactFilters({status:[],lead:[],campaign:[],agent:[]}); setContactLimit(100); },[]);
+  const clearContactFilters = useCallback(() => { setContactFilters({status:[],lead:[],campaign:[],agent:[]}); setContactDateFrom(""); setContactDateTo(""); setContactLimit(100); },[]);
   const deferredContactSearch = useDeferredValue(contactSearch);
   const filteredContacts  = useMemo(()=>{
     const cf=contactFilters; const q=deferredContactSearch.trim().toLowerCase();
@@ -215,6 +217,8 @@ export default function App() {
       if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
       if(cf.agent?.length)   { const a=c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
       if(cf.lead?.length)    { const l=c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
+      if(contactDateFrom && (c.lastTouched||"") < contactDateFrom) return false;
+      if(contactDateTo   && (c.lastTouched||"") > contactDateTo)   return false;
       if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""} ${c.email||""}`.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -1425,7 +1429,7 @@ export default function App() {
           {page==="contacts"&&(()=>{
             const contacts  = allContacts;
             const filtered  = filteredContacts;
-            const anyActive = Object.values(contactFilters).some((a:any)=>a.length>0)||contactSearch.trim().length>0;
+            const anyActive = Object.values(contactFilters).some((a:any)=>a.length>0)||contactSearch.trim().length>0||!!contactDateFrom||!!contactDateTo;
             const filterDefs = [
               {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"},{val:"not_answered",label:"Not Answered"},{val:"hangup",label:"Hung Up"}]},
               {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
@@ -1558,6 +1562,45 @@ export default function App() {
                       </div>
                     );
                   })}
+                  {/* Date filter */}
+                  {(()=>{
+                    const isOpen=activeFilterDropdown==="date";
+                    const hasDate=!!contactDateFrom||!!contactDateTo;
+                    const setPreset=(from:string,to:string)=>{ setContactDateFrom(from); setContactDateTo(to); setContactLimit(100); setActiveFilterDropdown(null); };
+                    return (
+                      <div style={{position:"relative"}}>
+                        <button onClick={()=>setActiveFilterDropdown(isOpen?null:"date")} style={{padding:"7px 12px",borderRadius:9,border:`1.5px solid ${hasDate?"#1a56db":"#e5e5e5"}`,background:hasDate?"#eff6ff":"#fff",color:hasDate?"#1a56db":"#555",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:5,whiteSpace:"nowrap"}}>
+                          Date{hasDate?<span style={{background:"#1a56db",color:"#fff",borderRadius:10,padding:"1px 6px",fontSize:10,fontWeight:800}}>✓</span>:null} ▾
+                        </button>
+                        {isOpen&&(
+                          <>
+                            <div style={{position:"fixed",inset:0,zIndex:99}} onClick={()=>setActiveFilterDropdown(null)}/>
+                            <div style={{position:"absolute",top:"calc(100% + 4px)",left:0,zIndex:100,background:"#fff",border:"1.5px solid #e5e5e5",borderRadius:12,padding:"10px 14px",boxShadow:"0 8px 24px rgba(0,0,0,.12)",minWidth:220,display:"flex",flexDirection:"column",gap:8}}>
+                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                                <span style={{fontSize:11,fontWeight:700,color:"#aaa",textTransform:"uppercase",letterSpacing:.5}}>Last Touched</span>
+                                {hasDate&&<button onClick={()=>{setContactDateFrom("");setContactDateTo("");setContactLimit(100);}} style={{fontSize:11,color:"#1a56db",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",fontWeight:600}}>Clear</button>}
+                              </div>
+                              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                                {[["Today",todayKey(),todayKey()],["Yesterday",addDays(todayKey(),-1),addDays(todayKey(),-1)],["This Week",addDays(todayKey(),-6),todayKey()],["This Month",addDays(todayKey(),-29),todayKey()]].map(([label,from,to])=>(
+                                  <button key={label} onClick={()=>setPreset(from,to)} style={{padding:"5px 10px",borderRadius:7,border:`1.5px solid ${contactDateFrom===from&&contactDateTo===to?"#1a56db":"#e5e5e5"}`,background:contactDateFrom===from&&contactDateTo===to?"#eff6ff":"#fff",color:contactDateFrom===from&&contactDateTo===to?"#1a56db":"#555",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>{label}</button>
+                                ))}
+                              </div>
+                              <div style={{display:"flex",flexDirection:"column",gap:6,paddingTop:6,borderTop:"1px solid #f0f0f0"}}>
+                                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                  <span style={{fontSize:11,color:"#888",width:28}}>From</span>
+                                  <input type="date" value={contactDateFrom} onChange={e=>{setContactDateFrom(e.target.value);setContactLimit(100);}} style={{flex:1,border:"1.5px solid #e5e5e5",borderRadius:7,padding:"5px 8px",fontSize:12,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                                </div>
+                                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                                  <span style={{fontSize:11,color:"#888",width:28}}>To</span>
+                                  <input type="date" value={contactDateTo} onChange={e=>{setContactDateTo(e.target.value);setContactLimit(100);}} style={{flex:1,border:"1.5px solid #e5e5e5",borderRadius:7,padding:"5px 8px",fontSize:12,fontFamily:"inherit",outline:"none"}} onFocus={e=>e.target.style.borderColor="#1a56db"} onBlur={e=>e.target.style.borderColor="#e5e5e5"}/>
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <select value={contactSort} onChange={e=>setContactSort(e.target.value)} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 11px",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff",color:"#555",cursor:"pointer"}}>
                     <option value="status">Sort: Status</option>
                     <option value="queue">🔥 Priority Queue</option>
