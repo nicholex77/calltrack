@@ -534,7 +534,12 @@ export default function App() {
     setSelectedContactIds(prev=>{ const n=new Set(prev); n.delete(contactId); return n; });
   },[showToast]);
 
-  const handleContactToggle = useCallback((id:string|null)=>setOpenContactId(prev=>prev===id?null:id),[]);
+  const handleContactToggle = useCallback((id:string|null)=>{
+    setOpenContactId(prev=>{
+      if(id && prev!==id) mutateContact(id, c=>{ c.lastTouched=currentDate; });
+      return prev===id?null:id;
+    });
+  },[mutateContact,currentDate]);
   const handleContactSelect = useCallback((id:string)=>setSelectedContactIds(prev=>{ const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; }),[]);
 
   const handleReassignStale = useCallback((agentName:string) => {
