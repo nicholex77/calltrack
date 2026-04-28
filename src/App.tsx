@@ -451,19 +451,21 @@ export default function App() {
 
   const updateContactLeadStatusCb = useCallback((contactId:string, leadStatus:string|null, author?:string) => {
     mutateContact(contactId, c=>{
-      if(c.leadStatus!==leadStatus){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"lead",from:c.leadStatus||"none",to:leadStatus||"none",by:author||"",timestamp:new Date().toISOString()}); }
+      if(c.leadStatus!==leadStatus){ if(!c.history)c.history=[]; c.history.unshift({id:uid(),type:"lead",from:c.leadStatus||"none",to:leadStatus||"none",by:author||"",timestamp:`${currentDate}T12:00:00.000Z`}); }
       c.leadStatus=leadStatus; c.lastTouched=currentDate;
     });
   },[mutateContact,currentDate]);
 
   const updateContactStatus = useCallback((contactId:string, status:string, author?:string) => {
+    // Stamp with currentDate noon UTC so history timestamps survive lastTouched overwrites
+    const ts = `${currentDate}T12:00:00.000Z`;
     mutateContact(contactId, c=>{
       if(!c.history) c.history=[];
       if(c.status!==status){
-        c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:new Date().toISOString()});
+        c.history.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:ts});
         c.status=status;
       } else {
-        c.history.unshift({id:uid(),type:"call",status,by:author||"",timestamp:new Date().toISOString()});
+        c.history.unshift({id:uid(),type:"call",status,by:author||"",timestamp:ts});
       }
       c.lastTouched=currentDate;
     });
