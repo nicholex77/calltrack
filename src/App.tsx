@@ -904,81 +904,159 @@ export default function App() {
     showToast("Generating PDF…");
     try {
       const doc = new jsPDF({ orientation:"landscape", unit:"pt", format:"a4" });
-
-      // Title
-      doc.setFont("helvetica","bold"); doc.setFontSize(18); doc.setTextColor(17,17,17);
+      const PW=841.89, M=40, CW=PW-M*2;
       const tabLabel = exportTab==="telesales"?"Telesales":exportTab==="whatsapp"?"WhatsApp":"General";
       const rangeLabel = exportRange==="today"?"Today":exportRange==="week"?"This Week":"Last 30 Days";
-      doc.text(`blurB — ${tabLabel} Report`, 40, 44);
-      doc.setFont("helvetica","normal"); doc.setFontSize(10); doc.setTextColor(120,120,120);
-      doc.text(`${rangeLabel}  ·  Generated ${fmt(todayKey())}  ·  mudah.my`, 40, 60);
 
-      // Summary table (replaces pie chart)
-      let summaryEndY = 75;
+      const drawPageHeader = ():number => {
+        doc.setFillColor(17,17,17); doc.rect(0,0,PW,52,"F");
+        doc.setFont("helvetica","bold"); doc.setFontSize(15); doc.setTextColor(255,255,255);
+        doc.text(`blurB — ${tabLabel} Report`, M, 30);
+        doc.setFont("helvetica","normal"); doc.setFontSize(9); doc.setTextColor(160,160,160);
+        doc.text(`${rangeLabel}  ·  Generated ${fmt(todayKey())}  ·  mudah.my`, M, 44);
+        return 62;
+      };
+
       if(exportTab==="telesales"){
-        const summ = buildTelesalesSummaryStats(rows);
-        autoTable(doc, {
-          head:[["Metric","Value","Rate"]],
-          body:[
-            ["Total Calls Made", String(summ.totalCalls), "—"],
-            ["Total Answered",   String(summ.totalAnswered),  `${summ.answerRate}% answer rate`],
-            ["Total Not Answered",String(summ.totalNotAns),  "—"],
-            ["Total Interested", String(summ.totalInterested),`${summ.convRate}% conversion rate`],
-          ],
-          startY:75,
-          tableWidth:260,
-          styles:{fontSize:9,cellPadding:5},
-          headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:8},
-          columnStyles:{1:{fontStyle:"bold"},2:{textColor:[26,86,219]}},
-          margin:{left:40},
-        });
-        summaryEndY = (doc as any).lastAutoTable.finalY + 14;
-      } else if(exportTab==="whatsapp"){
-        const totals = rows.reduce((a:any,r:any)=>({sent:a.sent+(r.Sent||0),replied:a.replied+(r.Replied||0),closed:a.closed+(r.Closed||0)}),{sent:0,replied:0,closed:0});
-        const replyRate=totals.sent>0?Math.round(totals.replied/totals.sent*100):0;
-        const closeRate=totals.replied>0?Math.round(totals.closed/totals.replied*100):0;
-        autoTable(doc, {
-          head:[["Metric","Value","Rate"]],
-          body:[
-            ["Total Sent",   String(totals.sent),   "—"],
-            ["Total Replied",String(totals.replied), `${replyRate}% reply rate`],
-            ["Total Closed", String(totals.closed),  `${closeRate}% close rate`],
-          ],
-          startY:75,
-          tableWidth:260,
-          styles:{fontSize:9,cellPadding:5},
-          headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:8},
-          columnStyles:{1:{fontStyle:"bold"},2:{textColor:[26,86,219]}},
-          margin:{left:40},
-        });
-        summaryEndY = (doc as any).lastAutoTable.finalY + 14;
-      } else {
-        const done=rows.filter((r:any)=>r.Status==="Done").length;
-        autoTable(doc, {
-          head:[["Metric","Value"]],
-          body:[["Tasks Done",`${done}/${rows.length}`],["Pending",String(rows.length-done)]],
-          startY:75,
-          tableWidth:180,
-          styles:{fontSize:9,cellPadding:5},
-          headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:8},
-          columnStyles:{1:{fontStyle:"bold"}},
-          margin:{left:40},
-        });
-        summaryEndY = (doc as any).lastAutoTable.finalY + 14;
-      }
+        // Build per-date aggregated stats from contacts + tasks directly
+        const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
+        const dates=getExportDates(exportRange);
+        type DayStat={iso:string,label:string,total:number,answered:number,notAns:number,interested:number,remarks:string[]};
+        const dayStats:DayStat[]=dates.map(iso=>{
+          let total=0,answered=0,notAns=0,interested=0; const remarks:string[]=[];
+          ((db.days?.[iso]?.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales").forEach((task:any)=>{
+            if(task.remarks?.trim()) remarks.push(task.remarks.trim());
+            ((task.assignedMembers||[]) as any[]).forEach((m:any)=>{
+              let s:any;
+              if(task.linkedCampaign){
+                const mine=contacts.filter((c:any)=>c.campaign===task.linkedCampaign&&c.salesAgent===m.name&&touchedOn(c,iso));
+                s={total:mine.length,answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,notAnswered:mine.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length,interested:mine.filter((c:any)=>c.status==="interested").length};
+              } else { s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0}; }
+              total+=s.total||0; answered+=s.answered||0; notAns+=s.notAnswered||0; interested+=s.interested||0;
+            });
+          });
+          return {iso,label:fmt(iso),total,answered,notAns,interested,remarks};
+        }).filter(d=>d.total>0||(db.days?.[d.iso]?.tasks?.length||0)>0);
 
-      // Main data table
-      const headers = Object.keys(rows[0]);
-      autoTable(doc, {
-        head:[headers],
-        body:rows.map((r:any)=>headers.map(h=>String(r[h]??""))) ,
-        startY:summaryEndY,
-        styles:{fontSize:7,cellPadding:4,textColor:[30,30,30]},
-        headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:7},
-        alternateRowStyles:{fillColor:[249,249,249]},
-        margin:{left:40,right:40},
-        tableWidth:"auto",
-      });
+        // Group by ISO week
+        const weekMap:Map<string,DayStat[]>=new Map();
+        dayStats.forEach(d=>{ const ws=weekStart(d.iso); const k=`${ws}__${fmt(ws)}`; if(!weekMap.has(k))weekMap.set(k,[]); weekMap.get(k)!.push(d); });
+
+        let y=drawPageHeader(); let firstSection=true;
+        weekMap.forEach((days,key)=>{
+          const weekLabelStr=`Week of ${key.split("__")[1]}`;
+          const wTotal=days.reduce((s,d)=>s+d.total,0);
+          const wAnswered=days.reduce((s,d)=>s+d.answered,0);
+          const wNotAns=days.reduce((s,d)=>s+d.notAns,0);
+          const wInterested=days.reduce((s,d)=>s+d.interested,0);
+          const ansRate=wTotal>0?Math.round(wAnswered/wTotal*100):0;
+          const convRate=wAnswered>0?Math.round(wInterested/wAnswered*100):0;
+          const dateRange=days.length===1?days[0].label:`${days[0].label} – ${days[days.length-1].label}`;
+          const hasRemarks=days.some(d=>d.remarks.length>0);
+
+          const estimatedH=46+78+30+30+days.length*22+(hasRemarks?18:0)+24;
+          if(!firstSection&&y+estimatedH>560){ doc.addPage(); y=drawPageHeader(); }
+          firstSection=false;
+
+          // Week header bar
+          doc.setFillColor(22,22,36); doc.rect(M,y,CW,46,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(13); doc.setTextColor(255,255,255);
+          doc.text(weekLabelStr, M+12, y+17);
+          doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(160,160,180);
+          doc.text(`${dateRange} · ${days.length} day${days.length!==1?"s":""}`, M+12, y+32);
+
+          // Calls pill
+          const callHit=callTarget>0&&wTotal>=(callTarget*days.length);
+          const intHit=intTarget>0&&wInterested>=(intTarget*days.length);
+          const callTxt=`${wTotal}/${callTarget>0?callTarget*days.length:"—"} calls`;
+          const intTxt=`${wInterested}/${intTarget>0?intTarget*days.length:"—"} interested`;
+          const cTxtW=doc.getTextWidth(callTxt); const iTxtW=doc.getTextWidth(intTxt);
+          const pillH=16,pillPad=8;
+          const pill2X=M+CW-iTxtW-pillPad*2-4; const pill1X=pill2X-cTxtW-pillPad*2-6;
+          const pillY=y+15;
+          doc.setFillColor(...(callHit?[5,150,105]:[239,68,68]) as [number,number,number]); doc.rect(pill1X,pillY,cTxtW+pillPad*2,pillH,"F");
+          doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(255,255,255);
+          doc.text(callTxt,pill1X+pillPad,pillY+11);
+          doc.setFillColor(...(intHit?[5,150,105]:[239,68,68]) as [number,number,number]); doc.rect(pill2X,pillY,iTxtW+pillPad*2,pillH,"F");
+          doc.text(intTxt,pill2X+pillPad,pillY+11);
+          y+=52;
+
+          // 4 stat boxes
+          const bW=CW/4, bH=70;
+          const boxes=[
+            {lbl:"TOTAL CALLS",val:String(wTotal),sub:`${days.length} day${days.length!==1?"s":""}`,rgb:[26,86,219] as [number,number,number]},
+            {lbl:"ANSWERED",val:`${wAnswered}/${wTotal}`,sub:`${ansRate}% answer rate`,rgb:[30,30,30] as [number,number,number]},
+            {lbl:"INTERESTED",val:`${wInterested}/${wTotal}`,sub:`${convRate}% conv. rate`,rgb:[5,150,105] as [number,number,number]},
+            {lbl:"NOT ANSWERED",val:`${wNotAns}/${wTotal}`,sub:`${wTotal>0?Math.round(wNotAns/wTotal*100):0}% missed`,rgb:[220,38,38] as [number,number,number]},
+          ];
+          boxes.forEach((b,i)=>{
+            const bx=M+i*bW;
+            doc.setFillColor(248,249,250); doc.rect(bx,y,bW,bH,"F");
+            doc.setDrawColor(225,225,225); doc.rect(bx,y,bW,bH);
+            doc.setFont("helvetica","bold"); doc.setFontSize(7); doc.setTextColor(160,160,160);
+            doc.text(b.lbl,bx+10,y+14);
+            doc.setFont("helvetica","bold"); doc.setFontSize(17); doc.setTextColor(...b.rgb);
+            doc.text(b.val,bx+10,y+40);
+            doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(110,110,110);
+            doc.text(b.sub,bx+10,y+56);
+          });
+          y+=bH+6;
+
+          // Progress bars
+          const barH=7, labelW=72, pctW=30;
+          [[`Answer rate`,ansRate,[16,185,129]] as const,[`Conv. rate`,convRate,[217,119,6]] as const].forEach(([lbl,pct,rgb])=>{
+            doc.setFont("helvetica","normal"); doc.setFontSize(8); doc.setTextColor(90,90,90);
+            doc.text(lbl,M,y+barH-1);
+            const trackX=M+labelW, trackW=CW-labelW-pctW;
+            doc.setFillColor(230,230,230); doc.rect(trackX,y,trackW,barH,"F");
+            const fillW=Math.max(0,Math.min(1,pct/100))*trackW;
+            doc.setFillColor(...rgb as [number,number,number]); doc.rect(trackX,y,fillW,barH,"F");
+            doc.setFont("helvetica","bold"); doc.setFontSize(8); doc.setTextColor(30,30,30);
+            doc.text(`${pct}%`,M+CW-pctW+4,y+barH-1);
+            y+=barH+7;
+          });
+          y+=4;
+
+          // Per-day breakdown table
+          const head=["DATE","TOTAL","ANSWERED","NOT ANS.","INTERESTED",...(hasRemarks?["REMARKS"]:[])];
+          const body=days.map(d=>{
+            const aR=d.total>0?Math.round(d.answered/d.total*100):0;
+            const cR=d.answered>0?Math.round(d.interested/d.answered*100):0;
+            const row=[d.label,String(d.total),`${d.answered}/${d.total} ${aR}%`,String(d.notAns),`${d.interested}/${d.answered} ${cR}%`];
+            if(hasRemarks) row.push(d.remarks.join("; ")||"—");
+            return row;
+          });
+          autoTable(doc,{
+            head:[head],body,startY:y,
+            styles:{fontSize:8,cellPadding:5,textColor:[30,30,30]},
+            headStyles:{fillColor:[40,40,60],textColor:[255,255,255],fontStyle:"bold",fontSize:7},
+            alternateRowStyles:{fillColor:[249,249,252]},
+            columnStyles:{0:{fontStyle:"bold"},...(hasRemarks?{5:{cellWidth:120}}:{})},
+            margin:{left:M,right:M},tableWidth:"auto",
+          });
+          y=(doc as any).lastAutoTable.finalY+22;
+        });
+
+        if(dayStats.length===0){
+          let y2=drawPageHeader();
+          doc.setFont("helvetica","normal"); doc.setFontSize(12); doc.setTextColor(160,160,160);
+          doc.text("No telesales data found for this period.", M, y2+40);
+        }
+
+      } else {
+        // WhatsApp / General: flat table
+        let y=drawPageHeader();
+        const headers=Object.keys(rows[0]);
+        autoTable(doc,{
+          head:[headers],
+          body:rows.map((r:any)=>headers.map(h=>String(r[h]??""))),
+          startY:y,
+          styles:{fontSize:7,cellPadding:4,textColor:[30,30,30]},
+          headStyles:{fillColor:[17,17,17],textColor:[255,255,255],fontStyle:"bold",fontSize:7},
+          alternateRowStyles:{fillColor:[249,249,249]},
+          margin:{left:M,right:M},tableWidth:"auto",
+        });
+      }
 
       doc.save(`blurb_${exportTab}_${exportRange}_${todayKey()}.pdf`);
       showToast("PDF exported");
