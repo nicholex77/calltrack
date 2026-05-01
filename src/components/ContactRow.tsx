@@ -9,7 +9,7 @@ const inputStyle: React.CSSProperties = {
   outline: "none", color: "#111", background: "#fff", boxSizing: "border-box",
 };
 
-export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected, selectMode, isManager, members, onToggle, onSelect, onSalesAgent, onLeadStatus, onStatus, onCallbackDate, onUpdate, onAddNote, authorName, onDelete, onToast, waTemplates }: any) {
+export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected, selectMode, isManager, members, onToggle, onSelect, onSalesAgent, onLeadStatus, onStatus, onCallbackDate, onUpdate, onAddNote, authorName, onDelete, onToast, waTemplates, qaQuestions }: any) {
   const sm = CONTACT_STATUS_META[c.status] || CONTACT_STATUS_META.contacted;
   const lm = c.leadStatus ? CONTACT_LEAD_META[c.leadStatus] : null;
   const st = staleness(c.lastTouched || "");
@@ -17,8 +17,11 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
   const scoreBg = score >= 70 ? "#f0fdf4" : score >= 40 ? "#fffbeb" : "#f9f9f9";
   const scoreColor = score >= 70 ? "#059669" : score >= 40 ? "#d97706" : "#9ca3af";
   const [noteText, setNoteText] = React.useState("");
+  const [tagInput, setTagInput] = React.useState("");
   const [swipeOpen, setSwipeOpen] = React.useState(false);
   const [showTpl, setShowTpl] = React.useState(false);
+  const tags: string[] = c.tags || [];
+  const answers: Record<string,string> = c.answers || {};
   const swipeTouchStart = React.useRef<{ x: number, y: number } | null>(null);
   const didSwipe = React.useRef(false);
 
@@ -75,6 +78,8 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             <span style={{ fontSize: 11, fontWeight: 700, color: sm.color, background: sm.bg, padding: "2px 8px", borderRadius: 20 }}>{sm.label}</span>
             {c.campaign && <span style={{ fontSize: 10, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", padding: "2px 7px", borderRadius: 20, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.campaign}</span>}
             {c.salesAgent && <span style={{ fontSize: 11, color: "#555", background: "#f5f5f5", padding: "2px 8px", borderRadius: 20 }}>{c.salesAgent}</span>}
+            {tags.slice(0, 2).map((t: string) => <span key={t} style={{ fontSize: 10, fontWeight: 600, color: "#0e7490", background: "#ecfeff", padding: "2px 7px", borderRadius: 20, border: "1px solid #a5f3fc" }}>#{t}</span>)}
+            {tags.length > 2 && <span style={{ fontSize: 10, fontWeight: 600, color: "#0e7490", background: "#ecfeff", padding: "2px 7px", borderRadius: 20, border: "1px solid #a5f3fc" }}>+{tags.length - 2}</span>}
             <span style={{ fontSize: 10, fontWeight: 800, color: scoreColor, background: scoreBg, padding: "2px 7px", borderRadius: 20, flexShrink: 0 }}>{score}</span>
             {!selectMode && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isOpen ? "#1a56db" : "#bbb"} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform .2s", flexShrink: 0 }}><polyline points="9 18 15 12 9 6" /></svg>}
           </div>
@@ -154,6 +159,64 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               {(members || []).map((m: any) => <option key={m.id} value={m.name}>{m.name}</option>)}
             </select>
           </div>
+
+          {/* Tags */}
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Tags</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+              {tags.map((t: string) => (
+                <span key={t} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: "#0e7490", background: "#ecfeff", padding: "3px 4px 3px 9px", borderRadius: 20, border: "1px solid #a5f3fc" }}>
+                  #{t}
+                  <button onClick={() => onUpdate(c.id, "tags", tags.filter(x => x !== t))} style={{ background: "none", border: "none", color: "#0891b2", cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 4px", fontFamily: "inherit" }}>×</button>
+                </span>
+              ))}
+              <input
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && tagInput.trim()) {
+                    const v = tagInput.trim().toLowerCase();
+                    if (!tags.includes(v)) onUpdate(c.id, "tags", [...tags, v]);
+                    setTagInput("");
+                  }
+                }}
+                placeholder="+ add tag (Enter)"
+                style={{ border: "1.5px dashed #cbd5e1", borderRadius: 20, padding: "3px 12px", fontSize: 11, fontFamily: "inherit", outline: "none", minWidth: 120, background: "#fafafa" }}
+                onFocus={e => (e.target.style.borderColor = "#0891b2")}
+                onBlur={e => (e.target.style.borderColor = "#cbd5e1")}
+              />
+            </div>
+          </div>
+
+          {/* Campaign Q&A */}
+          {(qaQuestions || []).length > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Campaign Q&amp;A {c.campaign && <span style={{ color: "#7c3aed", textTransform: "none" as const, letterSpacing: 0 }}>· {c.campaign}</span>}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {(qaQuestions as any[]).map((q: any, idx: number) => (
+                  <div key={q.id}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 5 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: "#1a56db", background: "#eff6ff", padding: "3px 8px", borderRadius: 6, flexShrink: 0, marginTop: 1 }}>Q{idx + 1}</div>
+                      <div style={{ fontSize: 12, color: "#333", lineHeight: 1.5, fontWeight: 600 }}>{q.text}</div>
+                    </div>
+                    <textarea
+                      key={answers[q.id] || ""}
+                      defaultValue={answers[q.id] || ""}
+                      rows={2}
+                      placeholder="Type answer…"
+                      style={{ ...inputStyle, resize: "vertical", marginLeft: 0 }}
+                      onFocus={e => (e.target.style.borderColor = "#1a56db")}
+                      onBlur={e => {
+                        e.target.style.borderColor = "#e5e5e5";
+                        const v = e.target.value;
+                        if (v !== (answers[q.id] || "")) onUpdate(c.id, "answers", { ...answers, [q.id]: v });
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* WA Templates */}
           {(waTemplates || []).length > 0 && (
