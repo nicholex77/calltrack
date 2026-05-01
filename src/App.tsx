@@ -922,6 +922,7 @@ export default function App() {
         const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
         const dates=getExportDates(exportRange);
         type DayStat={iso:string,label:string,total:number,answered:number,notAns:number,interested:number,remarks:string[]};
+        type MemberStat={name:string,total:number,answered:number,notAns:number,interested:number};
         const dayStats:DayStat[]=dates.map(iso=>{
           let total=0,answered=0,notAns=0,interested=0; const remarks:string[]=[];
           ((db.days?.[iso]?.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales").forEach((task:any)=>{
@@ -937,6 +938,22 @@ export default function App() {
           });
           return {iso,label:fmt(iso),total,answered,notAns,interested,remarks};
         }).filter(d=>d.total>0||(db.days?.[d.iso]?.tasks?.length||0)>0);
+
+        // Per-member stats across all dates (for member breakdown table)
+        const memberStatMap:Map<string,MemberStat>=new Map();
+        dates.forEach(iso=>{
+          ((db.days?.[iso]?.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales").forEach((task:any)=>{
+            ((task.assignedMembers||[]) as any[]).forEach((m:any)=>{
+              let s:any;
+              if(task.linkedCampaign){
+                const mine=contacts.filter((c:any)=>c.campaign===task.linkedCampaign&&c.salesAgent===m.name&&touchedOn(c,iso));
+                s={total:mine.length,answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,notAnswered:mine.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length,interested:mine.filter((c:any)=>c.status==="interested").length};
+              } else { s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0}; }
+              const prev=memberStatMap.get(m.name)||{name:m.name,total:0,answered:0,notAns:0,interested:0};
+              memberStatMap.set(m.name,{name:m.name,total:prev.total+(s.total||0),answered:prev.answered+(s.answered||0),notAns:prev.notAns+(s.notAnswered||0),interested:prev.interested+(s.interested||0)});
+            });
+          });
+        });
 
         // Group by ISO week
         const weekMap:Map<string,DayStat[]>=new Map();
@@ -1034,7 +1051,41 @@ export default function App() {
             columnStyles:{0:{fontStyle:"bold"},...(hasRemarks?{5:{cellWidth:120}}:{})},
             margin:{left:M,right:M},tableWidth:"auto",
           });
-          y=(doc as any).lastAutoTable.finalY+22;
+          y=(doc as any).lastAutoTable.finalY+10;
+
+          // Per-member breakdown for this week
+          const weekMemberMap:Map<string,MemberStat>=new Map();
+          days.forEach(d=>{
+            ((db.days?.[d.iso]?.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales").forEach((task:any)=>{
+              ((task.assignedMembers||[]) as any[]).forEach((m:any)=>{
+                let s:any;
+                if(task.linkedCampaign){
+                  const mine=contacts.filter((c:any)=>c.campaign===task.linkedCampaign&&c.salesAgent===m.name&&touchedOn(c,d.iso));
+                  s={total:mine.length,answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,notAnswered:mine.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length,interested:mine.filter((c:any)=>c.status==="interested").length};
+                } else { s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0}; }
+                const prev=weekMemberMap.get(m.name)||{name:m.name,total:0,answered:0,notAns:0,interested:0};
+                weekMemberMap.set(m.name,{name:m.name,total:prev.total+(s.total||0),answered:prev.answered+(s.answered||0),notAns:prev.notAns+(s.notAnswered||0),interested:prev.interested+(s.interested||0)});
+              });
+            });
+          });
+          if(weekMemberMap.size>0){
+            const mBody=Array.from(weekMemberMap.values()).sort((a,b)=>b.total-a.total).map(ms=>{
+              const aR=ms.total>0?Math.round(ms.answered/ms.total*100):0;
+              const cR=ms.answered>0?Math.round(ms.interested/ms.answered*100):0;
+              const hit=callTarget>0&&ms.total>=(callTarget*days.length);
+              return [ms.name,String(ms.total),`${ms.answered} (${aR}%)`,String(ms.notAns),`${ms.interested} (${cR}%)`,hit?"✓ Hit":"—"];
+            });
+            autoTable(doc,{
+              head:[["MEMBER","TOTAL","ANSWERED","NOT ANS.","INTERESTED","TARGET"]],
+              body:mBody,startY:y,
+              styles:{fontSize:8,cellPadding:4,textColor:[30,30,30]},
+              headStyles:{fillColor:[88,28,135],textColor:[255,255,255],fontStyle:"bold",fontSize:7},
+              alternateRowStyles:{fillColor:[250,245,255]},
+              columnStyles:{0:{fontStyle:"bold"},5:{halign:"center" as const}},
+              margin:{left:M,right:M},tableWidth:"auto",
+            });
+            y=(doc as any).lastAutoTable.finalY+22;
+          } else { y+=12; }
         });
 
         if(dayStats.length===0){
