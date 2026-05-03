@@ -1,24 +1,25 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from "react";
-import { supabase } from "./lib/supabase";
 import { CSS } from "./styles";
-import { initials, uid, todayKey, weekStart, addDays, normalizeDate, fmt, dayName, fmtNoteTime, scoreContact } from "./lib/utils";
-import { hashPin, safeCopy } from "./lib/security";
-import { loadLocal, saveLocal, loadRemote, saveRemote } from "./lib/storage";
-import { loadLocalContacts, saveLocalContacts, dbToContact, loadRemoteContacts, upsertContact, upsertContacts, deleteRemoteContact, deleteRemoteContacts } from "./lib/contacts-db";
-import { DAYS, AVATAR_COLORS, BRAND, TASK_TYPES, CONTACT_STATUS_META, CONTACT_LEAD_META, PIPELINE_COLS } from "./lib/constants";
+import { initials, uid, todayKey, weekStart, addDays, fmt, dayName, fmtNoteTime, scoreContact, touchedOn } from "./lib/utils";
+import { safeCopy } from "./lib/security";
+import { saveLocalContacts, upsertContact, upsertContacts, deleteRemoteContacts } from "./lib/contacts-db";
+import { AVATAR_COLORS, BRAND, TASK_TYPES, CONTACT_STATUS_META, CONTACT_LEAD_META, PIPELINE_COLS } from "./lib/constants";
+import { parseContactsCSV } from "./lib/csv-import";
+import { getExportDates, buildTelesalesRows, buildWhatsappRows, buildGeneralRows, getPreviewRows, buildPerformanceSummary } from "./lib/export-data";
+import { generatePDF } from "./lib/pdf-export";
 import { Counter } from "./components/Counter";
 import { TargetBar } from "./components/TargetBar";
 import { ContactRow } from "./components/ContactRow";
 import { PipelineCard } from "./components/PipelineCard";
-import { PinScreen } from "./components/PinScreen";
+import { LoginScreen } from "./components/LoginScreen";
 import { AppShell } from "./components/AppShell";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { useToast } from "./hooks/useToast";
+import { useAuth } from "./hooks/useAuth";
+import { useSync } from "./hooks/useSync";
+import { useContacts } from "./hooks/useContacts";
 
-//  Main App 
+//  Main App
 export default function App() {
-  const [db, setDb]                   = useState(loadLocal);
-  const [role, setRole]               = useState<string|null>(null);
   const [page, setPage]               = useState("daily");
   const [currentDate, setCurrentDate] = useState(todayKey);
   const [selectedTaskId, setSelectedTaskId] = useState<string|null>(null);
@@ -34,9 +35,6 @@ export default function App() {
   const [memberInput, setMemberInput] = useState("");
   const [campaignInput, setCampaignInput] = useState("");
   const [campaignTargetId, setCampaignTargetId] = useState<string|null>(null);
-  const [toast, setToast]             = useState<string|null>(null);
-  const [toastAction, setToastAction] = useState<{label:string,fn:()=>void}|null>(null);
-  const [isOnline, setIsOnline]       = useState(true);
   const [settingManagerPin, setSettingManagerPin] = useState("");
   const [settingMemberPin, setSettingMemberPin]   = useState("");
   const [showManagerPin, setShowManagerPin]       = useState(false);
@@ -44,7 +42,6 @@ export default function App() {
   const [settingCallTarget, setSettingCallTarget] = useState("");
   const [settingIntTarget, setSettingIntTarget]   = useState("");
   const [confirmModal, setConfirmModal]           = useState<{type:string;id:string;title:string}|null>(null);
-  const [loggedInMemberId, setLoggedInMemberId]   = useState<string|null>(null);
   const [sidebarOpen, setSidebarOpen]             = useState(true);
   const [scriptOpen, setScriptOpen]               = useState(false);
   const [leadsOpen, setLeadsOpen]                 = useState(false);
@@ -82,8 +79,6 @@ export default function App() {
   const [openContactId, setOpenContactId] = useState<string|null>(null);
   const [emailModal, setEmailModal]               = useState<{task:any}|null>(null);
   const [emailTo, setEmailTo]                     = useState("");
-  const [syncing, setSyncing]                     = useState(true);
-  const [syncError, setSyncError]                 = useState(false);
   const [importing, setImporting]                 = useState(false);
   const [pipelineSearch,         setPipelineSearch]        = useState("");
   const [pipelineCampaignFilter, setPipelineCampaignFilter] = useState("");
@@ -94,112 +89,31 @@ export default function App() {
   const [pipelineNoteText,       setPipelineNoteText]      = useState("");
   const [exporting, setExporting]                 = useState(false);
 
-  const [contacts, setContacts] = useState<any[]>(()=>loadLocalContacts());
+  // ── Hooks ────────────────────────────────────────────────────────────────────
+  const handleLockUI = useCallback(() => { setPage("daily"); setSelectedTaskId(null); }, []);
+  const { toast, toastAction, showToast } = useToast();
+  const { session, profile, authLoading, profileError, isManager, handleLock } = useAuth(handleLockUI);
+  const { db, setDb, updateDb, syncing, syncError, isOnline } = useSync();
+  const contactsApi = useContacts();
+  const { contacts, setContacts, mutateContact } = contactsApi;
 
   const modalRef      = useRef<HTMLInputElement>(null);
   const nextColorRef  = useRef<number>(0);
-  const writerIdRef   = useRef(uid());
-  const saveTimerRef  = useRef<ReturnType<typeof setTimeout>|null>(null);
-  const pendingSaveRef= useRef<any>(null);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
-  const retryCountRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout>|null>(null);
-
-  // ── Supabase real-time sync ──────────────────────────────────────────────────
-  useEffect(()=>{
-    let mounted = true;
-
-    // Load blob (settings, members, days — no contacts)
-    loadRemote().then(data=>{
-      if(!mounted) return;
-      if(data && Object.keys(data).length>0){
-        const { __writerId:_, ...clean } = data;
-        saveLocal(clean); setDb(clean);
-      }
-      setSyncing(false);
-    }).catch(()=>{ if(mounted) setSyncing(false); });
-
-    // Load contacts table; migrate from Supabase blob if empty
-    loadRemoteContacts().then(async remote=>{
-      if(!mounted) return;
-      if(remote.length===0){
-        const blobRemote = await loadRemote();
-        const all:any[] = blobRemote?.contacts||[];
-        if(all.length){ await upsertContacts(all); saveLocalContacts(all); if(mounted) setContacts(all); }
-      } else {
-        saveLocalContacts(remote); if(mounted) setContacts(remote);
-      }
-    }).catch(e=>console.error("contacts load",e));
-
-    const blobChannel = supabase.channel("calltrack-realtime")
-      .on("postgres_changes",{event:"*",schema:"public",table:"calltrack"},(payload:any)=>{
-        const incoming = payload.new?.data;
-        if(!incoming||incoming.__writerId===writerIdRef.current) return;
-        const { __writerId:_, ...clean } = incoming;
-        saveLocal(clean); setDb(clean);
-      }).subscribe((status:string)=>{
-        if(status==="SUBSCRIBED" && navigator.onLine) setIsOnline(true);
-        else if(status==="CHANNEL_ERROR" || status==="TIMED_OUT" || status==="CLOSED") setIsOnline(false);
-      });
-
-    const contactsChannel = supabase.channel("contacts-realtime")
-      .on("postgres_changes",{event:"*",schema:"public",table:"contacts"},(payload:any)=>{
-        if(payload.eventType==="DELETE"){
-          setContacts(prev=>{ const n=prev.filter((c:any)=>c.id!==payload.old?.id); saveLocalContacts(n); return n; });
-        } else if(payload.new){
-          const c=dbToContact(payload.new);
-          setContacts(prev=>{ const idx=prev.findIndex((x:any)=>x.id===c.id); const n=idx>=0?[...prev.slice(0,idx),c,...prev.slice(idx+1)]:[...prev,c]; saveLocalContacts(n); return n; });
-        }
-      }).subscribe();
-
-    return ()=>{ mounted=false; blobChannel.unsubscribe(); contactsChannel.unsubscribe(); supabase.removeChannel(blobChannel); supabase.removeChannel(contactsChannel); };
-  },[]);
 
   useEffect(()=>{ if(!modal) return; const t=setTimeout(()=>modalRef.current?.focus(),60); return ()=>clearTimeout(t); },[modal]);
   useEffect(()=>{ setSelectedTaskId(null); },[currentDate]);
 
-  const showToast = useCallback((msg:string, action?:{label:string,fn:()=>void}) => { if(toastTimerRef.current) clearTimeout(toastTimerRef.current); setToast(msg); setToastAction(action||null); toastTimerRef.current=setTimeout(()=>{setToast(null);setToastAction(null);},action?6000:2200); },[]);
-
-  const attemptSave = useCallback((data:any, attempt=0) => {
-    const DELAYS = [5000, 15000, 30000];
-    saveRemote(data).then(()=>{
-      retryCountRef.current = 0;
-      setSyncError(false);
-      pendingSaveRef.current = null;
-    }).catch(()=>{
-      setSyncError(true);
-      if(attempt < 3){
-        if(retryTimerRef.current) clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) attemptSave(pendingSaveRef.current, attempt+1); }, DELAYS[attempt]||30000);
-      }
-    });
-  }, []);
-
-  // updateDb — writes locally immediately, debounces Supabase writes to 1.2s
-  const updateDb = useCallback((fn:(db:any)=>void) => setDb((prev:any)=>{
-    const next = structuredClone(prev);
-    fn(next);
-    saveLocal(next);
-    pendingSaveRef.current = {...next, __writerId: writerIdRef.current};
-    retryCountRef.current = 0;
-    if(saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(()=>{ if(pendingSaveRef.current) attemptSave(pendingSaveRef.current); }, 1200);
-    return next;
-  }), [attemptSave]);
   const ensureDay = (db:any,date:string) => { if(!db.days) db.days={}; if(!db.days[date]) db.days[date]={tasks:[],saved:false}; };
 
-  const mutateContact = useCallback((id:string, fn:(c:any)=>void) => {
-    setContacts(prev=>{
-      const idx=prev.findIndex((c:any)=>c.id===id); if(idx<0) return prev;
-      const next=[...prev]; const c={...next[idx]}; fn(c); next[idx]=c;
-      saveLocalContacts(next); upsertContact(c);
-      return next;
-    });
-  },[]);
 
-
-  const isManager  = role==="manager";
+  const isManager  = profile?.role === "manager";
   const members:any[]  = db.members||[];
+  // Agents are linked to db.members[] by display name. The session's profile.name
+  // resolves to a member id used by tasks/notes/stats throughout the app.
+  const loggedInMemberId = useMemo(() => {
+    if (!profile || isManager) return null;
+    return members.find((m:any) => m.name === profile.name)?.id || null;
+  }, [profile, members, isManager]);
   const settings:any   = db.settings||{};
   const callTarget = parseInt(String(settings.callTarget||0))||0;
   const intTarget  = parseInt(String(settings.intTarget||0))||0;
@@ -251,7 +165,6 @@ export default function App() {
   // ── Pipeline hooks — top-level (Rules of Hooks) ──────────────────────────
   // Auto-computed stats for telesales tasks linked to a campaign
   const linkedTaskStats = useMemo(()=>{
-    const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
     const result:Record<string,Record<string,{total:number,answered:number,notAnswered:number,interested:number}>>={};
     (db.days?.[currentDate]?.tasks||[]).filter((t:any)=>t.linkedCampaign).forEach((t:any)=>{
       result[t.id]={};
@@ -289,41 +202,17 @@ export default function App() {
   const handlePipelineDragEnd = useCallback(()=>{ setDraggingContactId(null); setDragOverColumn(null); },[]);
   const handlePipelineCardClick = useCallback((id:string)=>setPipelineDetailId(id),[]);
 
-  const handleUnlock = (r:string, memberId:string|null) => {
-    setRole(r); setLoggedInMemberId(memberId||null); setPage("daily");
-    if("Notification" in window){
-      const notify=()=>{ const due=contacts.filter((c:any)=>c.callbackDate===todayKey()).length; if(due>0) new Notification("blurB — Callbacks Due Today",{body:`${due} callback${due!==1?"s":""} scheduled for today`,icon:"/vite.svg"}); };
-      if(Notification.permission==="granted") notify();
-      else if(Notification.permission!=="denied") Notification.requestPermission().then(p=>{if(p==="granted")notify();});
-    }
-  };
-  const handleLock   = useCallback(() => { setRole(null); setLoggedInMemberId(null); setPage("daily"); setSelectedTaskId(null); },[]);
-
-  // Session timeout: auto-lock after 30 min of inactivity
+  // Browser notification on sign-in: warn manager about callbacks due today
+  const sessionId = session?.user.id;
   useEffect(() => {
-    if (!role) return;
-    let lastActivity = Date.now();
-    const reset = () => { lastActivity = Date.now(); };
-    const events: string[] = ["mousedown","keydown","touchstart","scroll"];
-    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
-    const interval = setInterval(() => {
-      if (Date.now() - lastActivity > 30 * 60 * 1000) { handleLock(); }
-    }, 60 * 1000);
-    return () => {
-      events.forEach(e => window.removeEventListener(e, reset));
-      clearInterval(interval);
+    if (!sessionId || !("Notification" in window)) return;
+    const notify = () => {
+      const due = contacts.filter((c:any) => c.callbackDate === todayKey()).length;
+      if (due > 0) new Notification("blurB — Callbacks Due Today", { body: `${due} callback${due!==1?"s":""} scheduled for today`, icon: "/vite.svg" });
     };
-  }, [role, handleLock]);
-
-  // Online/offline detection
-  useEffect(() => {
-    const setOn = () => setIsOnline(true);
-    const setOff = () => setIsOnline(false);
-    window.addEventListener("online", setOn);
-    window.addEventListener("offline", setOff);
-    setIsOnline(navigator.onLine);
-    return () => { window.removeEventListener("online", setOn); window.removeEventListener("offline", setOff); };
-  }, []);
+    if (Notification.permission === "granted") notify();
+    else if (Notification.permission !== "denied") Notification.requestPermission().then(p => { if (p === "granted") notify(); });
+  }, [sessionId, contacts]);
 
   const openDedupModal = useCallback(()=>{
     const strip=(p:string)=>p.replace(/[\s\-()+.]/g,"").toLowerCase();
@@ -590,100 +479,26 @@ export default function App() {
     setImporting(true);
     const reader = new FileReader();
     reader.onload = (e) => {
-      const text = (e.target?.result as string)||"";
-      const lines = text.split(/\r?\n/).filter(l=>l.trim());
-      if (lines.length < 2) { showToast("CSV has no data rows."); setImporting(false); return; }
+      const text = (e.target?.result as string) || "";
+      const result = parseContactsCSV(text, campaignName, contacts);
+      if ("error" in result) { showToast(result.error); setImporting(false); return; }
 
-      // Parse CSV respecting quoted fields
-      const parseRow = (line: string): string[] => {
-        const out: string[] = [];
-        let cur = "", inQ = false;
-        for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          if (ch === '"') { if (inQ && line[i+1]==='"') { cur+='"'; i++; } else inQ=!inQ; }
-          else if (ch === ',' && !inQ) { out.push(cur.trim()); cur=""; }
-          else cur += ch;
-        }
-        out.push(cur.trim());
-        return out;
-      };
+      const { contacts: imported, crossDups, skipped } = result;
+      const PRIORITY: Record<string, number> = { interested: 3, callback: 2, contacted: 1 };
+      const stripPhone = (p: string) => p.replace(/[\s\-()+.]/g, "").toLowerCase();
 
-      const headers = parseRow(lines[0]).map(h=>h.toLowerCase().replace(/[^a-z0-9_]/g,"_"));
-      const col = (...names: string[]) => { for (const n of names) { const i=headers.indexOf(n); if(i>=0) return i; } return -1; };
-
-      const iName      = col("customer_name","client_name","name","contact_name");
-      const iPhone     = col("primary_phone","phone_number","phone");
-      const iPhone2    = col("mobile_phone","mobile","phone_2","phone2","alternate_phone","alt_phone","handphone","hp");
-      const iStoreType = col("store_type","type");
-      const iCompany   = col("agency","agency_name","company_name","company");
-      const iStoreId   = col("store_id","storeid","store_no","store_number","store");
-      const iRenId     = col("ren_id","renid","ren_no","ren");
-      const iState     = col("most_frequent_state","remarks","remark","notes","state");
-      const iStatus    = col("call_status","status");
-      const iInterest  = col("interest","interested");
-      const iAgent     = col("telesales","telesales_member","member","assigned_member","assigned","assigned_to","agent","agent_name");
-      const iDate      = col("date");
-      const iEmail     = col("email","email_address","contact_email","e_mail","e-mail");
-
-      const PRIORITY: any = { interested:3, callback:2, contacted:1 };
-      const stripPhone = (p:string) => p.replace(/[\s\-()+.]/g,"").toLowerCase();
-
-      const seen: any = {};
-      let skippedNoKey = 0;
-
-      for (let i = 1; i < lines.length; i++) {
-        const row = parseRow(lines[i]);
-        const statusRaw   = (iStatus   >= 0 ? row[iStatus]   : "").trim().toLowerCase();
-        const interestRaw = (iInterest >= 0 ? row[iInterest] : "").trim().toLowerCase();
-
-        let bucket: string = "contacted";
-        if (interestRaw==="yes")                              bucket="interested";
-        else if (/^ans/.test(statusRaw))                      bucket="contacted";
-        else if (/callback|call back|\bcb\b/.test(statusRaw)) bucket="callback";
-        else if (/^int/.test(statusRaw))                      bucket="interested";
-        else if (/not.ans|no.ans|unan/i.test(statusRaw))      bucket="not_answered";
-        else if (/hang|reject/i.test(statusRaw))              bucket="hangup";
-
-        const name      = iName      >= 0 ? row[iName].trim()      : "";
-        const phone     = iPhone     >= 0 ? row[iPhone].trim()     : "";
-        const phone2    = iPhone2    >= 0 ? row[iPhone2].trim()    : "";
-        const storeType = iStoreType >= 0 ? row[iStoreType].trim() : "";
-        const company   = iCompany   >= 0 ? row[iCompany].trim()   : "";
-        const storeId   = iStoreId   >= 0 ? row[iStoreId].trim()   : "";
-        const renId     = iRenId     >= 0 ? row[iRenId].trim()     : "";
-        const remarks   = iState     >= 0 ? row[iState].trim()     : "";
-        const agent     = iAgent     >= 0 ? row[iAgent].trim()     : "";
-        const date      = normalizeDate(iDate >= 0 ? row[iDate].trim() : "");
-        const email     = iEmail     >= 0 ? row[iEmail].trim()     : "";
-        const key       = (phone ? stripPhone(phone) : name.toLowerCase().trim());
-        if (!key) { skippedNoKey++; continue; }
-
-        const existing = seen[key];
-        const inP = PRIORITY[bucket]||0;
-        if (!existing || inP > (PRIORITY[existing.status]||0)) {
-          seen[key] = { id: existing?.id || crypto.randomUUID(), name: name||phone, phone, phone2, storeType, company, storeId, renId, email, status: bucket, agentName: agent, date, remarks, leadStatus: existing?.leadStatus||null, campaign: campaignName };
-        }
-      }
-
-      const imported = Object.values(seen) as any[];
-      if (!imported.length) { showToast("No rows found — check that the file has a name or phone column."); setImporting(false); return; }
-
-      // Compute cross-campaign duplicates from current snapshot before mutating
-      const existingPhones=new Set(contacts.filter((c:any)=>c.campaign!==campaignName&&c.phone).map((c:any)=>stripPhone(c.phone)));
-      const crossDups=imported.filter((c:any)=>c.phone&&existingPhones.has(stripPhone(c.phone))).length;
-
-      setContacts(prev=>{
-        const otherCampaign=prev.filter((c:any)=>c.campaign!==campaignName);
-        const sameCampaign=prev.filter((c:any)=>c.campaign===campaignName);
-        const existingMap:any={};
-        sameCampaign.forEach((c:any)=>{ const k=c.phone?stripPhone(c.phone):(c.name||"").toLowerCase().trim(); if(k) existingMap[k]=c; });
-        imported.forEach((c:any)=>{ const k=c.phone?stripPhone(c.phone):(c.name||"").toLowerCase().trim(); const ex=existingMap[k]; if(!ex||(PRIORITY[c.status]||0)>=(PRIORITY[ex.status]||0)) existingMap[k]={...c,leadStatus:ex?.leadStatus||null}; });
-        const next=[...otherCampaign,...Object.values(existingMap)];
+      setContacts(prev => {
+        const otherCampaign = prev.filter((c: any) => c.campaign !== campaignName);
+        const sameCampaign  = prev.filter((c: any) => c.campaign === campaignName);
+        const existingMap: any = {};
+        sameCampaign.forEach((c: any) => { const k = c.phone ? stripPhone(c.phone) : (c.name || "").toLowerCase().trim(); if (k) existingMap[k] = c; });
+        imported.forEach((c: any) => { const k = c.phone ? stripPhone(c.phone) : (c.name || "").toLowerCase().trim(); const ex = existingMap[k]; if (!ex || (PRIORITY[c.status] || 0) >= (PRIORITY[ex.status] || 0)) existingMap[k] = { ...c, leadStatus: ex?.leadStatus || null }; });
+        const next = [...otherCampaign, ...Object.values(existingMap)];
         saveLocalContacts(next); upsertContacts(Object.values(existingMap)); return next;
       });
 
       setContactLimit(100);
-      showToast(`Imported ${imported.length} contact${imported.length!==1?"s":""} into "${campaignName}"${crossDups>0?` · ${crossDups} duplicate phone${crossDups!==1?"s":""} found in other campaigns`:""}${skippedNoKey>0?` · ${skippedNoKey} row${skippedNoKey!==1?"s":""} skipped (no name or phone)`:""}.`);
+      showToast(`Imported ${imported.length} contact${imported.length !== 1 ? "s" : ""} into "${campaignName}"${crossDups > 0 ? ` · ${crossDups} duplicate phone${crossDups !== 1 ? "s" : ""} found in other campaigns` : ""}${skipped > 0 ? ` · ${skipped} row${skipped !== 1 ? "s" : ""} skipped (no name or phone)` : ""}.`);
       setImporting(false);
     };
     reader.onerror = () => { showToast("Failed to read file — try again."); setImporting(false); };
@@ -772,102 +587,23 @@ export default function App() {
   const monday     = addDays(baseMonday, weekOffset*7);
   const weekDates  = Array.from({length:7},(_,i)=>addDays(monday,i));
 
-  //  Export helpers 
-  const getExportDates = (range:string) => {
-    if(range==="today") return [todayKey()];
-    if(range==="week")  return weekDates;
-    const dates:string[] = []; const today=todayKey(); for(let i=29;i>=0;i--) dates.push(addDays(today,-i)); return dates;
-  };
-
-  const buildTelesalesRows = (dates:string[]) => {
-    const touchedOn=(c:any,date:string)=>c.date===date||c.reContactDate===date;
-    const rows:any[] = [];
-    dates.forEach((date:string)=>{
-      ((db.days?.[date]?.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales").forEach((task:any)=>{
-        ((task.assignedMembers||[]) as any[]).forEach((m:any)=>{
-          let s:{total:number,answered:number,notAnswered:number,interested:number};
-          if(task.linkedCampaign){
-            const mine=contacts.filter((c:any)=>c.campaign===task.linkedCampaign&&c.salesAgent===m.name&&touchedOn(c,date));
-            s={
-              total:mine.length,
-              answered:mine.filter((c:any)=>["contacted","callback","interested"].includes(c.status)).length,
-              notAnswered:mine.filter((c:any)=>["not_answered","hangup"].includes(c.status)).length,
-              interested:mine.filter((c:any)=>c.status==="interested").length,
-            };
-          } else {
-            s=task.memberStats?.[m.id]||{total:0,answered:0,notAnswered:0,interested:0};
-          }
-          const aRate=s.total>0?Math.round(s.answered/s.total*100):0;
-          const cRate=s.answered>0?Math.round(s.interested/s.answered*100):0;
-          rows.push({Date:fmt(date),Day:dayName(date),Member:m.name,Task:task.title,"Call Target":callTarget||"—",Total:s.total,Answered:s.answered,"Not Answered":s.notAnswered,Interested:s.interested,"Int. Target":intTarget||"—","Answer Rate (%)":aRate,"Conv. Rate (%)":cRate,"Target Hit?":callTarget>0?(s.total>=callTarget?"Yes":"No"):"—",Remarks:task.remarks||""});
-        });
-      });
-    });
-    return rows;
-  };
-
-  const buildWhatsappRows = (dates:string[]) => {
-    const rows:any[] = [];
-    dates.forEach((date:string)=>{
-      ((db.days?.[date]?.tasks||[]) as any[]).filter((t:any)=>t.type==="whatsapp").forEach((task:any)=>{
-        const memberNames=((task.assignedMembers||[]) as any[]).map((m:any)=>m.name).join(", ");
-        ((task.campaigns||[]) as any[]).forEach((c:any)=>{
-          const replyRate=c.sent>0?Math.round(c.replied/c.sent*100):0;
-          const closeRate=c.replied>0?Math.round(c.closed/c.replied*100):0;
-          rows.push({Date:fmt(date),Day:dayName(date),Members:memberNames,Task:task.title,Campaign:c.name,Sent:c.sent,Replied:c.replied,Closed:c.closed,"No Reply":c.unresponsive,"Reply Rate (%)":replyRate,"Close Rate (%)":closeRate,Remarks:c.remarks||""});
-        });
-        if(!task.campaigns||task.campaigns.length===0) rows.push({Date:fmt(date),Day:dayName(date),Members:memberNames,Task:task.title,Campaign:"—",Sent:0,Replied:0,Closed:0,"No Reply":0,"Reply Rate (%)":0,"Close Rate (%)":0,Remarks:task.notes||""});
-      });
-    });
-    return rows;
-  };
-
-  const buildGeneralRows = (dates:string[]) => {
-    const rows:any[] = [];
-    dates.forEach((date:string)=>{
-      ((db.days?.[date]?.tasks||[]) as any[]).filter((t:any)=>t.type==="general").forEach((task:any)=>{
-        ((task.assignedMembers||[]) as any[]).forEach((m:any)=>{
-          rows.push({Date:fmt(date),Day:dayName(date),Member:m.name,Task:task.title,Status:task.memberDone?.[m.id]?"Done":"Pending",Notes:task.notes||""});
-        });
-      });
-    });
-    return rows;
-  };
-
-  const buildTelesalesSummaryStats = (rows: any[]) => {
-    const totalCalls     = rows.reduce((s:number,r:any)=>s+(r.Total||0),0);
-    const totalAnswered  = rows.reduce((s:number,r:any)=>s+(r.Answered||0),0);
-    const totalNotAns    = rows.reduce((s:number,r:any)=>s+(r["Not Answered"]||0),0);
-    const totalInterested= rows.reduce((s:number,r:any)=>s+(r.Interested||0),0);
-    const answerRate     = totalCalls>0?Math.round(totalAnswered/totalCalls*100):0;
-    const convRate       = totalAnswered>0?Math.round(totalInterested/totalAnswered*100):0;
-    return {totalCalls,totalAnswered,totalNotAns,totalInterested,answerRate,convRate};
-  };
-
-  const getPreviewRows = () => {
-    const dates = getExportDates(exportRange);
-    let rows: any[] = [];
-    if(exportTab==="telesales") rows=buildTelesalesRows(dates);
-    else if(exportTab==="whatsapp") rows=buildWhatsappRows(dates);
-    else rows=buildGeneralRows(dates);
-    // members only see their own rows
-    if(!isManager && loggedInMemberId){
-      const me=members.find((m:any)=>m.id===loggedInMemberId);
-      if(me) rows=rows.filter((r:any)=>r.Member===me.name||r.Members?.includes(me.name));
-    }
-    return rows;
-  };
+  // ── Export helpers ────────────────────────────────────────────────────────────
+  // Shared context object passed to the stateless export-data functions
+  const exportCtx = { db, contacts, callTarget, intTarget, weekDates, members, isManager, loggedInMemberId };
 
   const exportToCSV = () => {
-    const rows = getPreviewRows();
-    if(rows.length===0){ showToast("No data to export"); return; }
+    const rows = getPreviewRows(exportTab, exportRange, exportCtx);
+    if (rows.length === 0) { showToast("No data to export"); return; }
     setExporting(true);
     try {
-      const headers=Object.keys(rows[0]);
-      const csvContent=[headers.join(","),...rows.map((r:any)=>headers.map((h:string)=>`"${String(r[h]||"").replace(/"/g,'""')}"`).join(","))].join("\n");
-      const encoded="data:text/csv;charset=utf-8,"+encodeURIComponent(csvContent);
-      const a=document.createElement("a"); a.href=encoded;
-      a.download=`blurb_${exportTab}_${exportRange}_${todayKey()}.csv`;
+      const headers = Object.keys(rows[0]);
+      const csvLines = [
+        headers.join(","),
+        ...rows.map(r => headers.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(",")),
+      ];
+      const a = document.createElement("a");
+      a.href = "data:text/csv;charset=utf-8," + encodeURIComponent(csvLines.join("\n"));
+      a.download = `blurb_${exportTab}_${exportRange}_${todayKey()}.csv`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
       showToast("CSV exported");
     } finally { setExporting(false); }
@@ -1309,7 +1045,8 @@ export default function App() {
       </div> );
   };
 
-  if(!role) return <PinScreen onUnlock={handleUnlock} db={db}/>;
+  if (authLoading) return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f9f9f9", color: "#aaa", fontSize: 14 }}>Loading…</div>;
+  if (!session || !profile) return <LoginScreen profileError={profileError} onSignOut={() => supabase.auth.signOut()} />;
 
   const hasUnsaved = dayTasks.some((t:any)=>!t.saved);
   const navItems = isManager
