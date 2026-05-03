@@ -1,14 +1,27 @@
 import { supabase } from "./supabase";
 import { DB_ROW_ID } from "./storage";
 
-export const CONTACTS_KEY = "calltrack_contacts_v1";
+export const CONTACTS_KEY    = "calltrack_contacts_v1";
+const CONTACTS_TS_KEY        = "calltrack_contacts_synced_at";
+const CONTACTS_FRESHNESS_MS  = 24 * 60 * 60 * 1000;
 
 export const loadLocalContacts = () => {
   try { return JSON.parse(localStorage.getItem(CONTACTS_KEY) || "[]"); } catch { return []; }
 };
 
 export const saveLocalContacts = (cs: any[]) => {
-  try { localStorage.setItem(CONTACTS_KEY, JSON.stringify(cs)); } catch {}
+  try {
+    localStorage.setItem(CONTACTS_KEY, JSON.stringify(cs));
+    localStorage.setItem(CONTACTS_TS_KEY, Date.now().toString());
+  } catch {}
+};
+
+/** True if contacts were synced from Supabase within the last 5 minutes. */
+export const isContactsLocalFresh = (): boolean => {
+  try {
+    const ts = localStorage.getItem(CONTACTS_TS_KEY);
+    return !!ts && Date.now() - parseInt(ts) < CONTACTS_FRESHNESS_MS;
+  } catch { return false; }
 };
 
 export const contactToDb = (c: any) => ({
