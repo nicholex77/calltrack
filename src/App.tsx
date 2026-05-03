@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback, useDeferredValue } from "react";
 import { CSS } from "./styles";
 import { initials, uid, todayKey, weekStart, addDays, fmt, dayName, fmtNoteTime, scoreContact, touchedOn } from "./lib/utils";
-import { safeCopy } from "./lib/security";
+import { hashPin, safeCopy } from "./lib/security";
 import { saveLocalContacts, upsertContact, upsertContacts, deleteRemoteContacts } from "./lib/contacts-db";
 import { AVATAR_COLORS, BRAND, TASK_TYPES, CONTACT_STATUS_META, CONTACT_LEAD_META, PIPELINE_COLS } from "./lib/constants";
 import { parseContactsCSV } from "./lib/csv-import";
@@ -17,6 +17,8 @@ import { useToast } from "./hooks/useToast";
 import { useAuth } from "./hooks/useAuth";
 import { useSync } from "./hooks/useSync";
 import { useContacts } from "./hooks/useContacts";
+import { MembersPage } from "./pages/MembersPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 //  Main App
 export default function App() {
@@ -35,12 +37,6 @@ export default function App() {
   const [memberInput, setMemberInput] = useState("");
   const [campaignInput, setCampaignInput] = useState("");
   const [campaignTargetId, setCampaignTargetId] = useState<string|null>(null);
-  const [settingManagerPin, setSettingManagerPin] = useState("");
-  const [settingMemberPin, setSettingMemberPin]   = useState("");
-  const [showManagerPin, setShowManagerPin]       = useState(false);
-  const [showMemberPin, setShowMemberPin]         = useState(false);
-  const [settingCallTarget, setSettingCallTarget] = useState("");
-  const [settingIntTarget, setSettingIntTarget]   = useState("");
   const [confirmModal, setConfirmModal]           = useState<{type:string;id:string;title:string}|null>(null);
   const [sidebarOpen, setSidebarOpen]             = useState(true);
   const [scriptOpen, setScriptOpen]               = useState(false);
@@ -559,30 +555,6 @@ export default function App() {
   const unsaveTask = (taskId:string) => { updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.saved=false; }); };
   const updateTaskTitle = (taskId:string, newTitle:string) => { if(!newTitle.trim()) return; updateDb((db:any)=>{ const t=db.days?.[currentDate]?.tasks?.find((t:any)=>t.id===taskId); if(t) t.title=newTitle.trim(); }); };
 
-  const saveSettings = async () => {
-    const mgr = settingManagerPin.length===4 ? await hashPin(settingManagerPin) : null;
-    const mbr = settingMemberPin.length===4  ? await hashPin(settingMemberPin)  : null;
-    updateDb((db:any)=>{
-      if(!db.settings) db.settings={};
-      if(mgr) db.settings.managerPin=mgr;
-      if(mbr) db.settings.agentPin=mbr;
-      if(settingCallTarget!=="") db.settings.callTarget=parseInt(settingCallTarget)||0;
-      if(settingIntTarget!=="")  db.settings.intTarget=parseInt(settingIntTarget)||0;
-    });
-    showToast("Settings saved");
-    setSettingManagerPin(""); setSettingMemberPin(""); setSettingCallTarget(""); setSettingIntTarget("");
-  };
-
-  const resetManagerPin = async () => {
-    const h=await hashPin("1234");
-    updateDb((db:any)=>{ if(!db.settings) db.settings={}; db.settings.managerPin=h; });
-    showToast("Manager PIN reset to 1234");
-  };
-  const resetMemberPin = async () => {
-    const h=await hashPin("0000");
-    updateDb((db:any)=>{ if(!db.settings) db.settings={}; db.settings.agentPin=h; });
-    showToast("Member PIN reset to 0000");
-  };
   const baseMonday = weekStart(todayKey());
   const monday     = addDays(baseMonday, weekOffset*7);
   const weekDates  = Array.from({length:7},(_,i)=>addDays(monday,i));
@@ -2181,44 +2153,19 @@ export default function App() {
             );
           })()}
 
-          {/*  MEMBERS (all roles — members can add only, managers can also delete)  */}
-          {page==="members"&&(
-            <div className="fade-up"> <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}> <div><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Telesales Members</div><div style={{fontSize:13,color:"#888",marginTop:2}}>{members.length} member{members.length!==1?"s":""}</div></div> <button className="primary-btn" onClick={()=>setModal("addMember")}>+ Add Member</button> </div> {members.length===0?(
-                <div style={{textAlign:"center",padding:"80px 20px",border:"1.5px dashed #e5e5e5",borderRadius:16}}> <div style={{fontWeight:700,fontSize:16,marginBottom:6}}>No members yet</div> <div style={{color:"#888",fontSize:13,marginBottom:20}}>Add your telesales members to get started</div> <button className="primary-btn" onClick={()=>setModal("addMember")}>+ Add First Member</button> </div> ):(
-                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:12}}> {members.map((m,i)=>{
-                    const [c1,c2]=AVATAR_COLORS[m.colorIdx];
-                    const allDays:any[]=Object.values(db.days||{});
-                    const totalCalls=allDays.reduce((sum:number,d:any)=>sum+((d.tasks||[]) as any[]).filter((t:any)=>t.type==="telesales"&&((t.assignedMembers||[]) as any[]).some((am:any)=>am.id===m.id)).reduce((s:number,t:any)=>s+(t.memberStats?.[m.id]?.total||0),0),0);
-                    const taskCount=allDays.reduce((sum:number,d:any)=>sum+((d.tasks||[]) as any[]).filter((t:any)=>((t.assignedMembers||[]) as any[]).some((am:any)=>am.id===m.id)).length,0);
-                    return (
-                      <div key={m.id} className="card fade-up" style={{padding:18,animationDelay:`${i*.05}s`}}> <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}> <div style={{width:46,height:46,borderRadius:14,background:`linear-gradient(135deg,${c1},${c2})`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:"#fff"}}>{initials(m.name)}</div> <button className="danger-btn" onClick={()=>confirmRemoveMember(m.id,m.name)} style={{visibility:isManager?"visible":"hidden"}}>×</button> </div> <div style={{fontWeight:700,fontSize:15,marginBottom:3}}>{m.name}</div> <div style={{fontSize:12,color:"#888"}}>{totalCalls} calls · {taskCount} tasks assigned</div> </div> );
-                  })}
-                </div> )}
-            </div> )}
+          {page === "members" && (
+            <MembersPage
+              db={db}
+              members={members}
+              isManager={isManager}
+              onAddMember={() => setModal("addMember")}
+              onRemoveMember={confirmRemoveMember}
+            />
+          )}
 
-          {/*  SETTINGS (manager only)  */}
-          {page==="settings"&&isManager&&(
-            <div className="fade-up"> <div style={{marginBottom:24}}><div style={{fontWeight:800,fontSize:22,letterSpacing:-.5,marginBottom:4}}>Settings</div><div style={{fontSize:13,color:"#888"}}>Configure PINs and daily targets</div></div> <div className="card" style={{marginBottom:16}}> <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>Change PINs</div> <div style={{padding:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Manager PIN <span style={{color:"#bbb",fontWeight:400}}>(currently: {settings.managerPin||"1234"})</span></div> <div style={{position:"relative"}}><input className="text-input" type={showManagerPin?"text":"password"} inputMode="numeric" maxLength={4} placeholder="New 4-digit PIN" value={settingManagerPin} onChange={e=>{ if(/^\d*$/.test(e.target.value)&&e.target.value.length<=4) setSettingManagerPin(e.target.value); }} style={{paddingRight:40}}/><button onClick={()=>setShowManagerPin(v=>!v)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>{showManagerPin?"Hide":"Show"}</button></div> <button onClick={resetManagerPin} style={{marginTop:8,background:"none",border:"none",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:0}}>Reset to default (1234)</button> </div> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Telesales Member PIN <span style={{color:"#bbb",fontWeight:400}}>(currently: {settings.agentPin||"0000"})</span></div> <div style={{position:"relative"}}><input className="text-input" type={showMemberPin?"text":"password"} inputMode="numeric" maxLength={4} placeholder="New 4-digit PIN" value={settingMemberPin} onChange={e=>{ if(/^\d*$/.test(e.target.value)&&e.target.value.length<=4) setSettingMemberPin(e.target.value); }} style={{paddingRight:40}}/><button onClick={()=>setShowMemberPin(v=>!v)} style={{position:"absolute",right:10,top:"50%",transform:"translateY(-50%)",background:"none",border:"none",cursor:"pointer",color:"#888",fontSize:12,fontWeight:600,fontFamily:"inherit"}}>{showMemberPin?"Hide":"Show"}</button></div> <button onClick={resetMemberPin} style={{marginTop:8,background:"none",border:"none",color:"#ef4444",fontSize:11,fontWeight:600,cursor:"pointer",fontFamily:"inherit",padding:0}}>Reset to default (0000)</button> </div> </div> </div> <div className="card" style={{marginBottom:20}}> <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>Daily Targets (per telesales member)</div> <div style={{padding:20,display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Call Target <span style={{color:"#bbb",fontWeight:400}}>(currently: {callTarget||"not set"})</span></div> <input className="text-input" type="number" min={0} placeholder="e.g. 80" value={settingCallTarget} onChange={e=>setSettingCallTarget(e.target.value)}/> <div style={{fontSize:11,color:"#999",marginTop:5}}>Calls each member should make per day</div> </div> <div> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Interested Target <span style={{color:"#bbb",fontWeight:400}}>(currently: {intTarget||"not set"})</span></div> <input className="text-input" type="number" min={0} placeholder="e.g. 10" value={settingIntTarget} onChange={e=>setSettingIntTarget(e.target.value)}/> <div style={{fontSize:11,color:"#999",marginTop:5}}>Interested leads each member should get</div> </div> </div> </div> <button className="primary-btn" style={{width:"100%",padding:14,fontSize:14}} onClick={saveSettings}>Save Settings</button> <div style={{marginTop:16,padding:"14px 18px",background:"#fffbeb",border:"1.5px solid #fde68a",borderRadius:12,fontSize:13,color:"#92400e"}}>Changing PINs takes effect on next login. Remember the new PINs before locking the app.</div>
-            <div className="card" style={{marginTop:20}}>
-              <div style={{padding:"16px 20px",borderBottom:"1px solid #f0f0f0",fontWeight:700,fontSize:14}}>WhatsApp Templates <span style={{fontSize:12,color:"#888",fontWeight:500}}>— use {"{name}"}, {"{phone}"}, {"{company}"} as placeholders</span></div>
-              <div style={{padding:16,display:"flex",flexDirection:"column",gap:8}}>
-                {(db.settings?.waTemplates||[]).map((t:any)=>(
-                  <div key={t.id} style={{background:"#fafafa",border:"1.5px solid #ebebeb",borderRadius:10,padding:"10px 14px",display:"flex",gap:10,alignItems:"flex-start"}}>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontWeight:700,fontSize:13,color:"#059669",marginBottom:3}}>{t.name}</div>
-                      <div style={{fontSize:12,color:"#555",lineHeight:1.5,wordBreak:"break-word" as const}}>{t.body}</div>
-                    </div>
-                    <button onClick={()=>updateDb((db:any)=>{if(db.settings?.waTemplates)db.settings.waTemplates=db.settings.waTemplates.filter((x:any)=>x.id!==t.id);})} style={{padding:"4px 10px",borderRadius:7,border:"1.5px solid #fecaca",background:"#fff",color:"#ef4444",fontSize:11,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0}}>Delete</button>
-                  </div>
-                ))}
-                <div style={{background:"#f0fdf4",border:"1.5px solid #a7f3d0",borderRadius:10,padding:14,display:"flex",flexDirection:"column",gap:8}}>
-                  <input value={newTplName} onChange={e=>setNewTplName(e.target.value)} placeholder="Template name (e.g. First Follow-up)" style={{border:"1.5px solid #e5e5e5",borderRadius:8,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none"}}/>
-                  <textarea value={newTplBody} onChange={e=>setNewTplBody(e.target.value)} placeholder={`Hi {name}, just following up on our call…`} rows={3} style={{border:"1.5px solid #e5e5e5",borderRadius:8,padding:"7px 10px",fontSize:13,fontFamily:"inherit",outline:"none",resize:"vertical" as const}}/>
-                  <button onClick={()=>{if(!newTplName.trim()||!newTplBody.trim()){showToast("Name and body required.");return;} updateDb((db:any)=>{if(!db.settings)db.settings={};if(!db.settings.waTemplates)db.settings.waTemplates=[];db.settings.waTemplates.push({id:uid(),name:newTplName.trim(),body:newTplBody.trim()});}); setNewTplName("");setNewTplBody("");showToast("Template saved.");}} className="green-btn" style={{alignSelf:"flex-end",padding:"7px 18px",fontSize:13}}>Add Template</button>
-                </div>
-              </div>
-            </div>
-            </div> )}
+          {page === "settings" && isManager && (
+            <SettingsPage db={db} updateDb={updateDb} showToast={showToast} />
+          )}
         {/*  MODALS  */}
         {modal==="addTask"&&(
           <div className="modal-overlay" onClick={()=>setModal(null)}> <div className="modal" onClick={e=>e.stopPropagation()}> <div style={{fontWeight:800,fontSize:18,marginBottom:4,letterSpacing:-.3}}>New Task</div> <div style={{fontSize:13,color:"#888",marginBottom:18}}>Choose a type, assign members, and set a title</div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Task Type</div> <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{Object.entries(TASK_TYPES).map(([k,v])=><button key={k} className={`type-btn ${newTaskType===k?"active":""}`} onClick={()=>setNewTaskType(k)}>{v.label}</button>)}</div> </div> <div style={{marginBottom:14}}> <div style={{fontSize:12,fontWeight:700,color:"#555",marginBottom:8}}>Assign Telesales Members <span style={{color:"#999",fontWeight:400}}>(select one or more)</span></div> {members.length===0?(
