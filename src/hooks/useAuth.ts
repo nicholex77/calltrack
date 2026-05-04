@@ -12,6 +12,7 @@ export function useAuth(onLock?: () => void) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [selectedMemberName, setSelectedMemberName] = useState<string | null>(null);
 
   // Initial session check + auth state listener
   useEffect(() => {
@@ -65,6 +66,7 @@ export function useAuth(onLock?: () => void) {
   }, []);
 
   const handleLock = useCallback(async () => {
+    setSelectedMemberName(null);
     await supabase.auth.signOut();
     onLock?.();
   }, [onLock]);
@@ -86,5 +88,5 @@ export function useAuth(onLock?: () => void) {
 
   const isManager = profile?.role === "manager";
 
-  return { session, profile, authLoading, profileError, isManager, handleLock, signOut };
+  return { session, profile, authLoading, profileError, isManager, handleLock, signOut, selectedMemberName, setSelectedMemberName };
 }

@@ -6,6 +6,7 @@ import { AVATAR_COLORS } from "./lib/constants";
 import { getPreviewRows, buildPerformanceSummary } from "./lib/export-data";
 import { generatePDF } from "./lib/pdf-export";
 import { LoginScreen } from "./components/LoginScreen";
+import { AgentPickerScreen } from "./components/AgentPickerScreen";
 import { AppShell } from "./components/AppShell";
 import { useToast } from "./hooks/useToast";
 import { useAuth } from "./hooks/useAuth";
@@ -41,7 +42,7 @@ export default function App() {
   // ── Hooks ─────────────────────────────────────────────────────────────────
   const handleLockUI = useCallback(() => { setPage("daily"); setSelectedTaskId(null); }, []);
   const { toast, toastAction, showToast, dismissToast } = useToast();
-  const { session, profile, authLoading, profileError, isManager, handleLock } = useAuth(handleLockUI);
+  const { session, profile, authLoading, profileError, isManager, handleLock, selectedMemberName, setSelectedMemberName } = useAuth(handleLockUI);
   const { db, updateDb, syncing, syncError, isOnline } = useSync();
   const {
     contacts, setContacts,
@@ -60,9 +61,9 @@ export default function App() {
   // ── Derived state ─────────────────────────────────────────────────────────
   const members: any[]   = db.members || [];
   const loggedInMemberId = useMemo(() => {
-    if (!profile || isManager) return null;
-    return members.find((m: any) => m.name === profile.name)?.id || null;
-  }, [profile, members, isManager]);
+    if (!profile || isManager || !selectedMemberName) return null;
+    return members.find((m: any) => m.name === selectedMemberName)?.id || null;
+  }, [profile, members, isManager, selectedMemberName]);
 
   const settings: any  = db.settings || {};
   const callTarget     = parseInt(String(settings.callTarget || 0)) || 0;
@@ -149,6 +150,14 @@ export default function App() {
   if (!session || !profile) return (
     <LoginScreen profileError={profileError} onSignOut={() => supabase.auth.signOut()} />
   );
+  if (!isManager && !selectedMemberName) {
+    if (syncing) return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f9f9f9", color: "#aaa", fontSize: 14 }}>Loading…</div>
+    );
+    return (
+      <AgentPickerScreen members={members} onPick={setSelectedMemberName} onSignOut={() => supabase.auth.signOut()} />
+    );
+  }
 
   // ── Nav + previews ────────────────────────────────────────────────────────
   const hasUnsaved = (db.days?.[currentDate]?.tasks || []).some((t: any) => !t.saved);
