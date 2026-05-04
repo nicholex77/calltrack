@@ -17,5 +17,11 @@ export function useToast() {
     }, action ? 6000 : 2200);
   }, []);
 
-  return { toast, toastAction, showToast };
+  const dismissToast = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setToast(null);
+    setToastAction(null);
+  }, []);
+
+  return { toast, toastAction, showToast, dismissToast };
 }

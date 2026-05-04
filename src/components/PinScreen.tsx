@@ -45,6 +45,8 @@ export function PinScreen({ onUnlock, db }: { onUnlock: (role: string, memberId:
         if (na >= MAX_PIN_ATTEMPTS) { setLockedUntil(Date.now() + PIN_LOCKOUT_MS); setPin(["", "", "", ""]); return; }
         setError(true); setShakeKey(k => k + 1); setPin(["", "", "", ""]);
         setTimeout(() => refs[0].current?.focus(), 50);
+      }).catch(() => {
+        setError(true); setShakeKey(k => k + 1); setPin(["", "", "", ""]);
       });
     }
   };

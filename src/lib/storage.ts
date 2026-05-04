@@ -17,7 +17,7 @@ export const saveLocal = (data: any) => {
   } catch {}
 };
 
-/** True if the blob was synced from Supabase within the last 5 minutes. */
+/** True if the blob was synced from Supabase within the last 24 hours. */
 export const isLocalFresh = (): boolean => {
   try {
     const ts = localStorage.getItem(SYNC_TS_KEY);

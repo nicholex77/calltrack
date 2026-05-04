@@ -74,6 +74,11 @@ export const scoreContact = (c: any): number => {
   return Math.max(0, Math.min(100, score));
 };
 
+// A contact "counts" for a given date when the agent manually set that date.
+// Intentionally NOT based on lastTouched so past-day totals aren't retroactively altered.
+export const touchedOn = (c: any, date: string): boolean =>
+  c.date === date || c.reContactDate === date;
+
 export const fmtNoteTime = (iso: string) => {
   try {
     const d = new Date(iso);

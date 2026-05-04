@@ -16,7 +16,7 @@ export const saveLocalContacts = (cs: any[]) => {
   } catch {}
 };
 
-/** True if contacts were synced from Supabase within the last 5 minutes. */
+/** True if contacts were synced from Supabase within the last 24 hours. */
 export const isContactsLocalFresh = (): boolean => {
   try {
     const ts = localStorage.getItem(CONTACTS_TS_KEY);
@@ -65,10 +65,12 @@ export const upsertContacts = async (cs: any[]): Promise<void> => {
 };
 
 export const deleteRemoteContact = async (id: string): Promise<void> => {
-  await supabase.from("contacts").delete().eq("id", id).eq("row_key", DB_ROW_ID);
+  const { error } = await supabase.from("contacts").delete().eq("id", id).eq("row_key", DB_ROW_ID);
+  if (error) console.error("deleteRemoteContact", error);
 };
 
 export const deleteRemoteContacts = async (ids: string[]): Promise<void> => {
   if (!ids.length) return;
-  await supabase.from("contacts").delete().in("id", ids).eq("row_key", DB_ROW_ID);
+  const { error } = await supabase.from("contacts").delete().in("id", ids).eq("row_key", DB_ROW_ID);
+  if (error) console.error("deleteRemoteContacts", error);
 };
