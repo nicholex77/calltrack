@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "../lib/supabase";
-import { loadLocal, saveLocal, loadRemote, saveRemote, isLocalFresh, DB_ROW_ID } from "../lib/storage";
+import { loadLocal, saveLocal, loadRemote, saveRemote, DB_ROW_ID } from "../lib/storage";
 import { uid } from "../lib/utils";
 import type { DbBlob } from "../types";
 
@@ -25,7 +25,7 @@ export function useSync() {
   useEffect(() => {
     let mounted = true;
 
-    if (!isLocalFresh() || Object.keys(loadLocal()).length === 0) {
+    const fetchRemote = () => {
       loadRemote().then(data => {
         if (!mounted) return;
         if (data && Object.keys(data).length > 0) {
@@ -35,9 +35,9 @@ export function useSync() {
         }
         setSyncing(false);
       }).catch(() => { if (mounted) setSyncing(false); });
-    } else {
-      setSyncing(false);
-    }
+    };
+
+    fetchRemote();
 
     // Realtime: ignore our own writes via __writerId so we don't echo
     const channel = supabase.channel("calltrack-realtime")
@@ -55,8 +55,13 @@ export function useSync() {
         else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setIsOnline(false);
       });
 
+    // Re-fetch when tab becomes visible to catch missed realtime events
+    const onVisible = () => { if (document.visibilityState === "visible") fetchRemote(); };
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       mounted = false;
+      document.removeEventListener("visibilitychange", onVisible);
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };

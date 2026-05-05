@@ -8,10 +8,8 @@ import {
   upsertContacts,
   deleteRemoteContact,
   deleteRemoteContacts,
-  isContactsLocalFresh,
   dbToContact,
 } from "../lib/contacts-db";
-import { DB_ROW_ID } from "../lib/storage";
 import { uid, todayKey } from "../lib/utils";
 import type { Contact, ContactNote, ContactHistoryEntry } from "../types";
 
@@ -25,18 +23,21 @@ export function useContacts() {
   useEffect(() => {
     let mounted = true;
 
-    if (!isContactsLocalFresh() || loadLocalContacts().length === 0) {
+    const fetchRemote = () => {
       loadRemoteContacts().then(remote => {
         if (!mounted) return;
         saveLocalContacts(remote);
         setContacts(remote);
       }).catch(e => console.error("contacts load", e));
-    }
+    };
+
+    fetchRemote();
 
     // Realtime: keeps local cache in sync with other agents' writes
+    // No row_key filter — subscribe to all rows so no events are silently dropped
     const channel = supabase.channel("contacts-realtime")
       .on("postgres_changes",
-        { event: "*", schema: "public", table: "contacts", filter: `row_key=eq.${DB_ROW_ID}` },
+        { event: "*", schema: "public", table: "contacts" },
         (payload: any) => {
           if (payload.eventType === "DELETE") {
             setContacts(prev => {
@@ -45,21 +46,31 @@ export function useContacts() {
               return next;
             });
           } else if (payload.new) {
-            const c = dbToContact(payload.new);
+            const incoming = dbToContact(payload.new);
             setContacts(prev => {
-              const idx = prev.findIndex((x: any) => x.id === c.id);
+              const idx = prev.findIndex((x: any) => x.id === incoming.id);
               const next = idx >= 0
-                ? [...prev.slice(0, idx), c, ...prev.slice(idx + 1)]
-                : [...prev, c];
+                ? [...prev.slice(0, idx), incoming, ...prev.slice(idx + 1)]
+                : [...prev, incoming];
               saveLocalContacts(next);
               return next;
             });
           }
         })
-      .subscribe();
+      .subscribe((status: string) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          console.warn("contacts realtime", status, "— re-fetching");
+          fetchRemote();
+        }
+      });
+
+    // Re-fetch when tab becomes visible to catch missed realtime events
+    const onVisible = () => { if (document.visibilityState === "visible") fetchRemote(); };
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       mounted = false;
+      document.removeEventListener("visibilitychange", onVisible);
       channel.unsubscribe();
       supabase.removeChannel(channel);
     };
