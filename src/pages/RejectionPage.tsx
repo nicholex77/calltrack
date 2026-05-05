@@ -29,7 +29,7 @@ function getDates(range: string): string[] | null {
 
 const COLORS = ["#ef4444", "#f59e0b", "#3b82f6", "#8b5cf6", "#10b981"];
 
-export function RejectionPage({ contacts, members, loggedInMemberName }: Props) {
+export function RejectionPage({ contacts, members: _members, loggedInMemberName }: Props) {
   const [range, setRange] = useState("month");
   const [agentFilter, setAgentFilter] = useState(loggedInMemberName || "");
 
