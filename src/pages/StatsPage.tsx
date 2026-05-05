@@ -8,15 +8,23 @@ interface Props {
   statsTab: "agents" | "campaigns" | "funnel" | "log" | "activity";
   setStatsTab: (t: "agents" | "campaigns" | "funnel" | "log" | "activity") => void;
   onReassignStale: (agentName: string) => void;
+  loggedInMemberName?: string | null;
 }
 
 const pct = (n: number, t: number) => t > 0 ? Math.round(n / t * 100) : 0;
 
 // Manager-only stats dashboard. 5 tabs: Agents, Campaigns, Funnel, Call Log, Activity.
-export function StatsPage({ contacts, members, statsTab, setStatsTab, onReassignStale }: Props) {
+export function StatsPage({ contacts, members, statsTab, setStatsTab, onReassignStale, loggedInMemberName }: Props) {
   const today = todayKey();
-  const agentNames = Array.from(new Set(contacts.map(c => c.salesAgent || "").filter(Boolean))).sort();
-  const unassignedCount = contacts.filter(c => !c.salesAgent).length;
+  // Agents see only their own contacts; managers see all
+  const visibleContacts = loggedInMemberName
+    ? contacts.filter(c => c.salesAgent === loggedInMemberName)
+    : contacts;
+
+  const agentNames = loggedInMemberName
+    ? (visibleContacts.some(c => c.salesAgent === loggedInMemberName) ? [loggedInMemberName] : [])
+    : Array.from(new Set(contacts.map(c => c.salesAgent || "").filter(Boolean))).sort();
+  const unassignedCount = loggedInMemberName ? 0 : contacts.filter(c => !c.salesAgent).length;
 
   const agentRows = agentNames.map(name => {
     const cs = contacts.filter(c => c.salesAgent === name);
@@ -35,9 +43,9 @@ export function StatsPage({ contacts, members, statsTab, setStatsTab, onReassign
     return { name, total, contacted, callback, interested, hot, stale, callbackDueToday, avgScore };
   });
 
-  const campaignNames = Array.from(new Set(contacts.map(c => c.campaign || "").filter(Boolean))).sort();
+  const campaignNames = Array.from(new Set(visibleContacts.map(c => c.campaign || "").filter(Boolean))).sort();
   const campaignRows = campaignNames.map(camp => {
-    const cs = contacts.filter(c => c.campaign === camp);
+    const cs = visibleContacts.filter(c => c.campaign === camp);
     const total = cs.length;
     const contacted = cs.filter(c => c.status === "contacted").length;
     const callback = cs.filter(c => c.status === "callback").length;
@@ -50,7 +58,9 @@ export function StatsPage({ contacts, members, statsTab, setStatsTab, onReassign
     <div className="fade-up">
       <div style={{ marginBottom: 20 }}>
         <div style={{ fontWeight: 800, fontSize: 22, letterSpacing: -.5 }}>Stats</div>
-        <div style={{ fontSize: 13, color: "#888", marginTop: 2 }}>{agentNames.length} agents · {contacts.length} total contacts{unassignedCount > 0 ? ` · ${unassignedCount} unassigned` : ""}</div>
+        <div style={{ fontSize: 13, color: "#888", marginTop: 2 }}>
+          {loggedInMemberName ? `Showing stats for ${loggedInMemberName}` : `${agentNames.length} agents · ${contacts.length} total contacts${unassignedCount > 0 ? ` · ${unassignedCount} unassigned` : ""}`}
+        </div>
       </div>
 
       <div className="stats-tab-bar">
@@ -63,9 +73,9 @@ export function StatsPage({ contacts, members, statsTab, setStatsTab, onReassign
 
       {statsTab === "agents" && <AgentsTab agentRows={agentRows} onReassignStale={onReassignStale} />}
       {statsTab === "campaigns" && <CampaignsTab campaignRows={campaignRows} />}
-      {statsTab === "funnel" && <FunnelTab contacts={contacts} />}
-      {statsTab === "log" && <LogTab contacts={contacts} />}
-      {statsTab === "activity" && <ActivityTab contacts={contacts} members={members} today={today} />}
+      {statsTab === "funnel" && <FunnelTab contacts={visibleContacts} />}
+      {statsTab === "log" && <LogTab contacts={visibleContacts} />}
+      {statsTab === "activity" && <ActivityTab contacts={visibleContacts} members={members} today={today} />}
     </div>
   );
 }

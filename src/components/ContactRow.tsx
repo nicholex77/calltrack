@@ -9,7 +9,7 @@ const inputStyle: React.CSSProperties = {
   outline: "none", color: "#111", background: "#fff", boxSizing: "border-box",
 };
 
-export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected, selectMode, isManager, members, onToggle, onSelect, onSalesAgent, onLeadStatus, onStatus, onCallbackDate, onUpdate, onAddNote, authorName, onDelete, onToast, waTemplates, qaQuestions }: any) {
+export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected, selectMode, isManager, members, onToggle, onSelect, onSalesAgent, onLeadStatus, onStatus, onCallbackDate, onUpdate, onAddNote, authorName, onDelete, onToast, waTemplates, qaTemplates }: any) {
   const sm = CONTACT_STATUS_META[c.status] || CONTACT_STATUS_META.contacted;
   const lm = c.leadStatus ? CONTACT_LEAD_META[c.leadStatus] : null;
   const st = staleness(c.lastTouched || "");
@@ -20,8 +20,14 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
   const [tagInput, setTagInput] = React.useState("");
   const [swipeOpen, setSwipeOpen] = React.useState(false);
   const [showTpl, setShowTpl] = React.useState(false);
+  const [showQa, setShowQa] = React.useState(false);
+  const [activeTplId, setActiveTplId] = React.useState<string>("");
   const tags: string[] = c.tags || [];
-  const answers: Record<string,string> = c.answers || {};
+  const answers: Record<string, any> = c.answers || {};
+  const qaTpls: any[] = qaTemplates || [];
+  const effectiveTplId = activeTplId || qaTpls[0]?.id || "";
+  const activeTpl = qaTpls.find((t: any) => t.id === effectiveTplId);
+  const tplAnswers: Record<string, string> = (answers[effectiveTplId] as any) || {};
   const swipeTouchStart = React.useRef<{ x: number, y: number } | null>(null);
   const didSwipe = React.useRef(false);
 
@@ -188,33 +194,51 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             </div>
           </div>
 
-          {/* Campaign Q&A */}
-          {(qaQuestions || []).length > 0 && (
+          {/* Q&A */}
+          {qaTpls.length > 0 && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Campaign Q&amp;A {c.campaign && <span style={{ color: "#7c3aed", textTransform: "none" as const, letterSpacing: 0 }}>· {c.campaign}</span>}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {(qaQuestions as any[]).map((q: any, idx: number) => (
-                  <div key={q.id}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 5 }}>
-                      <div style={{ fontSize: 10, fontWeight: 800, color: "#1a56db", background: "#eff6ff", padding: "3px 8px", borderRadius: 6, flexShrink: 0, marginTop: 1 }}>Q{idx + 1}</div>
-                      <div style={{ fontSize: 12, color: "#333", lineHeight: 1.5, fontWeight: 600 }}>{q.text}</div>
-                    </div>
-                    <textarea
-                      key={answers[q.id] || ""}
-                      defaultValue={answers[q.id] || ""}
-                      rows={2}
-                      placeholder="Type answer…"
-                      style={{ ...inputStyle, resize: "vertical", marginLeft: 0 }}
-                      onFocus={e => (e.target.style.borderColor = "#1a56db")}
-                      onBlur={e => {
-                        e.target.style.borderColor = "#e5e5e5";
-                        const v = e.target.value;
-                        if (v !== (answers[q.id] || "")) onUpdate(c.id, "answers", { ...answers, [q.id]: v });
-                      }}
-                    />
-                  </div>
-                ))}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: showQa ? 10 : 0 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5 }}>Q&amp;A</div>
+                <button onClick={() => setShowQa(v => !v)} style={{ fontSize: 11, fontWeight: 700, color: "#1a56db", background: "#eff6ff", border: "1.5px solid #bfdbfe", borderRadius: 7, padding: "2px 10px", cursor: "pointer", fontFamily: "inherit" }}>{showQa ? "Hide" : "Fill Q&A"}</button>
               </div>
+              {showQa && (
+                <>
+                  {qaTpls.length > 1 && (
+                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 10 }}>
+                      {qaTpls.map((t: any) => (
+                        <button key={t.id} onClick={() => setActiveTplId(t.id)} style={{ padding: "4px 10px", borderRadius: 7, border: `1.5px solid ${t.id === effectiveTplId ? "#1a56db" : "#e5e5e5"}`, background: t.id === effectiveTplId ? "#eff6ff" : "#fff", color: t.id === effectiveTplId ? "#1a56db" : "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>{t.name}</button>
+                      ))}
+                    </div>
+                  )}
+                  {activeTpl && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {activeTpl.questions.map((q: any, idx: number) => (
+                        <div key={q.id}>
+                          <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 5 }}>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: "#1a56db", background: "#eff6ff", padding: "3px 8px", borderRadius: 6, flexShrink: 0, marginTop: 1 }}>Q{idx + 1}</div>
+                            <div style={{ fontSize: 12, color: "#333", lineHeight: 1.5, fontWeight: 600 }}>{q.text}</div>
+                          </div>
+                          <textarea
+                            key={tplAnswers[q.id] || ""}
+                            defaultValue={tplAnswers[q.id] || ""}
+                            rows={2}
+                            placeholder="Type answer…"
+                            style={{ ...inputStyle, resize: "vertical" }}
+                            onFocus={e => (e.target.style.borderColor = "#1a56db")}
+                            onBlur={e => {
+                              e.target.style.borderColor = "#e5e5e5";
+                              const v = e.target.value;
+                              if (v !== (tplAnswers[q.id] || "")) {
+                                onUpdate(c.id, "answers", { ...answers, [effectiveTplId]: { ...tplAnswers, [q.id]: v } });
+                              }
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

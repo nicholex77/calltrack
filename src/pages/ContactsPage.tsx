@@ -541,7 +541,7 @@ export function ContactsPage({
           <ContactRow key={c.id} c={c} isOpen={openContactId===c.id} isSelected={selectedContactIds.has(c.id)} selectMode={contactSelectMode} isManager={isManager} members={members}
             onToggle={handleContactToggle} onSelect={handleContactSelect} onSalesAgent={updateContactSalesAgent} onLeadStatus={updateContactLeadStatus}
             onStatus={updateContactStatus} onCallbackDate={updateContactCallbackDate} onUpdate={updateContactField} onAddNote={addContactNote}
-            authorName={authorName} onDelete={deleteContactCb} onToast={showToast} waTemplates={waTemplates} qaQuestions={qaTemplates?.[c.campaign||""]||[]}/>
+            authorName={authorName} onDelete={deleteContactCb} onToast={showToast} waTemplates={waTemplates} qaTemplates={Array.isArray(qaTemplates) ? qaTemplates : []}/>
         ))}
       </div>
       {filtered.length>contactLimit&&(

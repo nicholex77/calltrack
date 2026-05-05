@@ -10,11 +10,19 @@ export type ExportContext = {
   members: any[];
   isManager: boolean;
   loggedInMemberId: string | null;
+  exportDateFrom?: string;
+  exportDateTo?: string;
 };
 
 // ── Date range helpers ───────────────────────────────────────────────────────
 
-export const getExportDates = (range: string, weekDates: string[]): string[] => {
+export const getExportDates = (range: string, weekDates: string[], from?: string, to?: string): string[] => {
+  if (range === "custom" && from && to && from <= to) {
+    const dates: string[] = [];
+    let d = from;
+    while (d <= to) { dates.push(d); d = addDays(d, 1); }
+    return dates;
+  }
   if (range === "today") return [todayKey()];
   if (range === "week")  return weekDates;
   // "month" = last 30 days
@@ -134,7 +142,7 @@ export const buildTelesalesSummaryStats = (rows: any[]) => {
 // ── Preview rows (used by CSV export and the export page table preview) ──────
 
 export const getPreviewRows = (exportTab: string, exportRange: string, ctx: ExportContext): any[] => {
-  const dates = getExportDates(exportRange, ctx.weekDates);
+  const dates = getExportDates(exportRange, ctx.weekDates, ctx.exportDateFrom, ctx.exportDateTo);
   let rows: any[];
 
   if (exportTab === "telesales")     rows = buildTelesalesRows(dates, ctx);

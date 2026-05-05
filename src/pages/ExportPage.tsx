@@ -7,6 +7,10 @@ interface Props {
   setExportTab: (t: string) => void;
   exportRange: string;
   setExportRange: (r: string) => void;
+  exportDateFrom: string;
+  setExportDateFrom: (d: string) => void;
+  exportDateTo: string;
+  setExportDateTo: (d: string) => void;
   isManager: boolean;
   previewRows: any[];
   perfSummary: any[];
@@ -20,6 +24,7 @@ interface Props {
 // date range, plus a per-member performance summary for managers.
 export function ExportPage({
   exportTab, setExportTab, exportRange, setExportRange,
+  exportDateFrom, setExportDateFrom, exportDateTo, setExportDateTo,
   isManager, previewRows, perfSummary, exporting, callTarget,
   onExportCSV, onExportPDF,
 }: Props) {
@@ -45,11 +50,23 @@ export function ExportPage({
         </div>
         <div style={{ marginLeft: "auto" }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#888", marginBottom: 7, textTransform: "uppercase", letterSpacing: .5 }}>Date Range</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            {[["today", "Today"], ["week", "This Week"], ["month", "Last 30 Days"]].map(([k, label]) => (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {[["today", "Today"], ["week", "This Week"], ["month", "Last 30 Days"], ["custom", "Custom"]].map(([k, label]) => (
               <button key={k} className={`tab-btn ${exportRange === k ? "active" : ""}`} onClick={() => setExportRange(k)}>{label}</button>
             ))}
           </div>
+          {exportRange === "custom" && (
+            <div style={{ display: "flex", gap: 10, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#888" }}>From</span>
+                <input type="date" value={exportDateFrom} onChange={e => setExportDateFrom(e.target.value)} style={{ border: "1.5px solid #e5e5e5", borderRadius: 7, padding: "5px 8px", fontSize: 12, fontFamily: "inherit", outline: "none" }} onFocus={e => (e.target.style.borderColor = "#1a56db")} onBlur={e => (e.target.style.borderColor = "#e5e5e5")} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#888" }}>To</span>
+                <input type="date" value={exportDateTo} onChange={e => setExportDateTo(e.target.value)} style={{ border: "1.5px solid #e5e5e5", borderRadius: 7, padding: "5px 8px", fontSize: 12, fontFamily: "inherit", outline: "none" }} onFocus={e => (e.target.style.borderColor = "#1a56db")} onBlur={e => (e.target.style.borderColor = "#e5e5e5")} />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

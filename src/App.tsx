@@ -19,7 +19,6 @@ import { PipelinePage } from "./pages/PipelinePage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { StatsPage } from "./pages/StatsPage";
 import { ExportPage } from "./pages/ExportPage";
-import { MyStatsPage } from "./pages/MyStatsPage";
 import { MembersPage } from "./pages/MembersPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -33,6 +32,8 @@ export default function App() {
   const [exportRange, setExportRange]           = useState("week");
   const [exporting, setExporting]               = useState(false);
   const [statsTab, setStatsTab]                 = useState<"agents"|"campaigns"|"funnel"|"log"|"activity">("agents");
+  const [exportDateFrom, setExportDateFrom]     = useState("");
+  const [exportDateTo, setExportDateTo]         = useState("");
   const [memberInput, setMemberInput]           = useState("");
   const [modal, setModal]                       = useState<string|null>(null);
   const [confirmModal, setConfirmModal]         = useState<{id:string;title:string}|null>(null);
@@ -65,6 +66,8 @@ export default function App() {
     return members.find((m: any) => m.name === selectedMemberName)?.id || null;
   }, [profile, members, isManager, selectedMemberName]);
 
+  const loggedInMemberName = !isManager ? selectedMemberName : null;
+
   const settings: any  = db.settings || {};
   const callTarget     = parseInt(String(settings.callTarget || 0)) || 0;
   const intTarget      = parseInt(String(settings.intTarget  || 0)) || 0;
@@ -84,7 +87,8 @@ export default function App() {
 
   const exportCtx = useMemo(() => ({
     db, contacts, callTarget, intTarget, weekDates, members, isManager, loggedInMemberId,
-  }), [db, contacts, callTarget, intTarget, weekDates, members, isManager, loggedInMemberId]);
+    exportDateFrom, exportDateTo,
+  }), [db, contacts, callTarget, intTarget, weekDates, members, isManager, loggedInMemberId, exportDateFrom, exportDateTo]);
 
   // ── Member management ─────────────────────────────────────────────────────
   const addMember = () => {
@@ -163,7 +167,7 @@ export default function App() {
   const hasUnsaved = (db.days?.[currentDate]?.tasks || []).some((t: any) => !t.saved);
   const navItems = isManager
     ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["export","Export"],["members","Members"],["settings","Settings"]]
-    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["mystats","My Stats"],["export","Export"],["members","Members"]];
+    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["export","Export"],["members","Members"]];
 
   const perfSummary = buildPerformanceSummary(exportCtx);
   const previewRows = getPreviewRows(exportTab, exportRange, exportCtx);
@@ -237,12 +241,13 @@ export default function App() {
           <TemplatesPage db={db} updateDb={updateDb} showToast={showToast} isManager={isManager} contactCampaigns={contactCampaigns} />
         )}
 
-        {/* STATS (manager only) */}
-        {page === "stats" && isManager && (
+        {/* STATS */}
+        {page === "stats" && (
           <StatsPage
             contacts={contacts} members={members}
             statsTab={statsTab} setStatsTab={setStatsTab}
-            onReassignStale={(agentName) => { setReassignAgent(agentName); setPage("contacts"); }}
+            onReassignStale={isManager ? (agentName) => { setReassignAgent(agentName); setPage("contacts"); } : () => {}}
+            loggedInMemberName={loggedInMemberName}
           />
         )}
 
@@ -251,19 +256,12 @@ export default function App() {
           <ExportPage
             exportTab={exportTab} setExportTab={setExportTab}
             exportRange={exportRange} setExportRange={setExportRange}
+            exportDateFrom={exportDateFrom} setExportDateFrom={setExportDateFrom}
+            exportDateTo={exportDateTo} setExportDateTo={setExportDateTo}
             isManager={isManager}
             previewRows={previewRows} perfSummary={perfSummary}
             exporting={exporting} callTarget={callTarget}
             onExportCSV={exportToCSV} onExportPDF={exportToPDF}
-          />
-        )}
-
-        {/* MY STATS (agent only) */}
-        {page === "mystats" && !isManager && (
-          <MyStatsPage
-            db={db} members={members} contacts={contacts}
-            loggedInMemberId={loggedInMemberId}
-            weekDates={weekDates} callTarget={callTarget} intTarget={intTarget}
           />
         )}
 
