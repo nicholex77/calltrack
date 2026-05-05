@@ -18,6 +18,7 @@ import { ContactsPage } from "./pages/ContactsPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { StatsPage } from "./pages/StatsPage";
+import { RejectionPage } from "./pages/RejectionPage";
 import { ExportPage } from "./pages/ExportPage";
 import { MembersPage } from "./pages/MembersPage";
 import { SettingsPage } from "./pages/SettingsPage";
@@ -166,8 +167,8 @@ export default function App() {
   // ── Nav + previews ────────────────────────────────────────────────────────
   const hasUnsaved = (db.days?.[currentDate]?.tasks || []).some((t: any) => !t.saved);
   const navItems = isManager
-    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["export","Export"],["members","Members"],["settings","Settings"]]
-    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["export","Export"],["members","Members"]];
+    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["rejections","Rejections"],["export","Export"],["members","Members"],["settings","Settings"]]
+    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["rejections","Rejections"],["export","Export"],["members","Members"]];
 
   const perfSummary = buildPerformanceSummary(exportCtx);
   const previewRows = getPreviewRows(exportTab, exportRange, exportCtx);
@@ -247,6 +248,14 @@ export default function App() {
             contacts={contacts} members={members}
             statsTab={statsTab} setStatsTab={setStatsTab}
             onReassignStale={isManager ? (agentName) => { setReassignAgent(agentName); setPage("contacts"); } : () => {}}
+            loggedInMemberName={loggedInMemberName}
+          />
+        )}
+
+        {/* REJECTIONS */}
+        {page === "rejections" && (
+          <RejectionPage
+            contacts={contacts} members={members}
             loggedInMemberName={loggedInMemberName}
           />
         )}

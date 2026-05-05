@@ -34,5 +34,15 @@ export const PIPELINE_COLS = [
   { key: "interested", label: "Interested", color: "#059669", bg: "#f0fdf4" },
 ] as const;
 
+export const REJECTION_REASONS = [
+  { key: "too_expensive",  label: "Too expensive" },
+  { key: "wrong_time",     label: "Not the right time" },
+  { key: "competitor",     label: "Already using competitor" },
+  { key: "not_relevant",   label: "Not relevant" },
+  { key: "wrong_number",   label: "Wrong number" },
+] as const;
+
+export type RejectionReasonKey = typeof REJECTION_REASONS[number]["key"];
+
 export const MAX_PIN_ATTEMPTS = 5;
 export const PIN_LOCKOUT_MS = 30_000;

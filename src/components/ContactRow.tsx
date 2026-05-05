@@ -1,7 +1,15 @@
 import React from "react";
-import { CONTACT_STATUS_META, CONTACT_LEAD_META } from "../lib/constants";
+import { CONTACT_STATUS_META, CONTACT_LEAD_META, REJECTION_REASONS } from "../lib/constants";
 import { staleness, initials, fmt, fmtNoteTime, scoreContact } from "../lib/utils";
 import { safeCopy } from "../lib/security";
+
+const getRejCounts = (): Record<string, number> => {
+  try { return JSON.parse(localStorage.getItem("rej_counts") || "{}"); } catch { return {}; }
+};
+const bumpRejCount = (key: string) => {
+  const c = getRejCounts(); c[key] = (c[key] || 0) + 1;
+  localStorage.setItem("rej_counts", JSON.stringify(c));
+};
 
 const inputStyle: React.CSSProperties = {
   width: "100%", border: "1.5px solid #e5e5e5", borderRadius: 7,
@@ -22,6 +30,44 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
   const [showTpl, setShowTpl] = React.useState(false);
   const [showQa, setShowQa] = React.useState(false);
   const [activeTplId, setActiveTplId] = React.useState<string>("");
+  const [pendingStatus, setPendingStatus] = React.useState<string | null>(null);
+  const [selectedReason, setSelectedReason] = React.useState("");
+  const [rejNote, setRejNote] = React.useState("");
+  const rejPickerRef = React.useRef<HTMLDivElement>(null);
+
+  // Sort rejection reasons by most-used (localStorage counts)
+  const sortedReasons = React.useMemo(() => {
+    const counts = getRejCounts();
+    return [...REJECTION_REASONS].sort((a, b) => (counts[b.key] || 0) - (counts[a.key] || 0));
+  }, [pendingStatus]); // recompute each time picker opens
+
+  React.useEffect(() => {
+    if (pendingStatus) {
+      setSelectedReason(""); setRejNote("");
+      setTimeout(() => rejPickerRef.current?.focus(), 50);
+    }
+  }, [pendingStatus]);
+
+  const confirmRejection = React.useCallback(() => {
+    if (!selectedReason || !pendingStatus) return;
+    onStatus(c.id, pendingStatus, authorName);
+    onUpdate(c.id, "rejectionReason", selectedReason);
+    onUpdate(c.id, "rejectionNote", rejNote.trim());
+    bumpRejCount(selectedReason);
+    setPendingStatus(null);
+  }, [selectedReason, pendingStatus, rejNote, c.id, authorName, onStatus, onUpdate]);
+
+  const handlePickerKey = React.useCallback((e: React.KeyboardEvent) => {
+    const n = parseInt(e.key);
+    if (n >= 1 && n <= sortedReasons.length) { e.preventDefault(); setSelectedReason(sortedReasons[n - 1].key); return; }
+    if (e.key === "Enter") { e.preventDefault(); confirmRejection(); }
+    if (e.key === "Escape") setPendingStatus(null);
+  }, [sortedReasons, confirmRejection]);
+
+  const handleStatusClick = React.useCallback((st: string) => {
+    if (st === "contacted" || st === "hangup") { setPendingStatus(st); }
+    else { onStatus(c.id, st, authorName); }
+  }, [c.id, authorName, onStatus]);
   const tags: string[] = c.tags || [];
   const answers: Record<string, any> = c.answers || {};
   const qaTpls: any[] = qaTemplates || [];
@@ -126,14 +172,14 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
                 {(["contacted", "callback", "interested"] as const).map(st => {
                   const stm = CONTACT_STATUS_META[st];
                   const active = c.status === st;
-                  return <button key={st} onClick={() => onStatus(c.id, st, authorName)} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1.5px solid ${active ? stm.color : "#e5e5e5"}`, background: active ? stm.bg : "#fff", color: active ? stm.color : "#aaa", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all .12s" }}>{stm.label}</button>;
+                  return <button key={st} onClick={() => handleStatusClick(st)} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1.5px solid ${active ? stm.color : "#e5e5e5"}`, background: active ? stm.bg : "#fff", color: active ? stm.color : "#aaa", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all .12s" }}>{stm.label}</button>;
                 })}
               </div>
               <div style={{ display: "flex", gap: 6 }}>
                 {(["not_answered", "hangup"] as const).map(st => {
                   const stm = CONTACT_STATUS_META[st];
                   const active = c.status === st;
-                  return <button key={st} onClick={() => onStatus(c.id, st, authorName)} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1.5px solid ${active ? stm.color : "#e5e5e5"}`, background: active ? stm.bg : "#fff", color: active ? stm.color : "#aaa", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all .12s" }}>{stm.label}</button>;
+                  return <button key={st} onClick={() => handleStatusClick(st)} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1.5px solid ${active ? stm.color : "#e5e5e5"}`, background: active ? stm.bg : "#fff", color: active ? stm.color : "#aaa", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all .12s" }}>{stm.label}</button>;
                 })}
               </div>
             </div>
@@ -148,6 +194,42 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               </div>
             </div>
           </div>
+
+          {/* Rejection reason picker — required for contacted/hangup */}
+          {pendingStatus && (
+            <div ref={rejPickerRef} tabIndex={0} onKeyDown={handlePickerKey} style={{ marginTop: 10, padding: 14, background: "#fffbeb", border: "1.5px solid #fbbf24", borderRadius: 10, outline: "none" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", marginBottom: 10 }}>
+                Why didn't they convert? <span style={{ fontWeight: 500, color: "#b45309" }}>· Press 1–{sortedReasons.length}, Enter to confirm, Esc to cancel</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 10 }}>
+                {sortedReasons.map((r, i) => {
+                  const counts = getRejCounts();
+                  const isTop = i === 0 && (counts[r.key] || 0) > 0;
+                  const active = selectedReason === r.key;
+                  return (
+                    <button key={r.key} onClick={() => setSelectedReason(r.key)}
+                      style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, border: `1.5px solid ${active ? "#f59e0b" : "#e5e5e5"}`, background: active ? "#fef3c7" : isTop ? "#fafaf0" : "#fff", color: active ? "#92400e" : "#333", fontSize: 13, fontWeight: active ? 700 : 500, cursor: "pointer", fontFamily: "inherit", textAlign: "left", transition: "all .1s" }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: active ? "#f59e0b" : "#aaa", background: active ? "#fef3c7" : "#f5f5f5", padding: "2px 7px", borderRadius: 6, flexShrink: 0 }}>{i + 1}</span>
+                      {r.label}
+                      {isTop && <span style={{ marginLeft: "auto", fontSize: 10, color: "#d97706", fontWeight: 600 }}>frequent</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                value={rejNote} onChange={e => setRejNote(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.stopPropagation(); confirmRejection(); } if (e.key === "Escape") { e.stopPropagation(); setPendingStatus(null); } }}
+                placeholder="Add more context (optional)"
+                style={{ width: "100%", border: "1.5px solid #e5e5e5", borderRadius: 8, padding: "7px 10px", fontSize: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setPendingStatus(null)} style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: "1.5px solid #e5e5e5", background: "#fff", color: "#888", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+                <button onClick={confirmRejection} disabled={!selectedReason} style={{ flex: 2, padding: "7px 0", borderRadius: 8, border: "none", background: selectedReason ? "#f59e0b" : "#e5e5e5", color: selectedReason ? "#fff" : "#aaa", fontSize: 12, fontWeight: 700, cursor: selectedReason ? "pointer" : "default", fontFamily: "inherit" }}>
+                  Confirm {selectedReason ? `· ${sortedReasons.find(r => r.key === selectedReason)?.label}` : ""}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Callback date */}
           {c.status === "callback" && (

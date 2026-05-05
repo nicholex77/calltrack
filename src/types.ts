@@ -153,6 +153,8 @@ export interface Contact {
   reContactDate?: string;
   tags?: string[];
   answers?: Record<string, any>;
+  rejectionReason?: string;
+  rejectionNote?: string;
 }
 
 export interface ConfirmModal {
