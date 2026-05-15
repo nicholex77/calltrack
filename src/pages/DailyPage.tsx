@@ -40,8 +40,6 @@ export function DailyPage({
   const [sidebarOpen, setSidebarOpen]                 = useState(true);
   const [scriptOpen, setScriptOpen]                   = useState(false);
   const [leadsOpen, setLeadsOpen]                     = useState(false);
-  const [emailModal, setEmailModal]                   = useState<{task:any}|null>(null);
-  const [emailTo, setEmailTo]                         = useState("");
 
   const modalRef = useRef<HTMLInputElement>(null);
 
@@ -185,40 +183,6 @@ export function DailyPage({
   const unsaveTask = (taskId: string) => { updateDb((db: any) => { const t = db.days?.[currentDate]?.tasks?.find((t: any) => t.id === taskId); if (t) t.saved = false; }); };
   const updateTaskTitle = (taskId: string, newTitle: string) => { if (!newTitle.trim()) return; updateDb((db: any) => { const t = db.days?.[currentDate]?.tasks?.find((t: any) => t.id === taskId); if (t) t.title = newTitle.trim(); }); };
 
-  const buildEmailBody = (task: any) => {
-    const assigned: any[] = task.assignedMembers || [];
-    const lines: string[] = [];
-    lines.push(`blurB — ${task.title}`);
-    lines.push(`Date: ${fmt(currentDate)}`);
-    lines.push("═".repeat(36));
-    lines.push("");
-    lines.push("MEMBER STATS");
-    lines.push("─".repeat(36));
-    assigned.forEach((m: any, i: number) => {
-      const s = task.memberStats?.[m.id] || { total: 0, answered: 0, notAnswered: 0, interested: 0 };
-      const aRate = s.total > 0 ? Math.round(s.answered / s.total * 100) : 0;
-      const cRate = s.answered > 0 ? Math.round(s.interested / s.answered * 100) : 0;
-      lines.push(`${i + 1}. ${m.name.padEnd(14)} Total: ${s.total} | Answered: ${s.answered} | Not Ans: ${s.notAnswered} | Interested: ${s.interested} | Answer Rate: ${aRate}% | Conv Rate: ${cRate}%`);
-    });
-    const leads: any[] = task.leads || [];
-    if (leads.length > 0) {
-      lines.push("");
-      lines.push("POTENTIAL LEADS");
-      lines.push("─".repeat(36));
-      leads.forEach((l: any, i: number) => {
-        lines.push(`${i + 1}. ${l.agentName || "—"}  |  ${l.phone || "—"}  |  ${l.remark || "—"}`);
-      });
-    }
-    return lines.join("\n");
-  };
-
-  const sendEmail = (task: any) => {
-    const subject = encodeURIComponent(`blurB Report — ${task.title} (${fmt(currentDate)})`);
-    const body    = encodeURIComponent(buildEmailBody(task));
-    window.open(`https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(emailTo.trim())}&su=${subject}&body=${body}`, "_blank");
-    setEmailModal(null); setEmailTo("");
-  };
-
   // ── Render helpers ────────────────────────────────────────────────────────────
 
   const MemberAvatarRow = ({ assignedMembers }: { assignedMembers: any[] }) => (
@@ -232,7 +196,7 @@ export function DailyPage({
   const renderTelesales = (task: any) => {
     const assigned = task.assignedMembers || [];
     const isLinked = !!task.linkedCampaign;
-    const isSheetSync = task.id.startsWith("sheet-sync-") || isLinked;
+    const isSheetSync = isLinked;
     const getStats = (memberId: string) => isLinked ? (linkedTaskStats[task.id]?.[memberId] || { total: 0, answered: 0, notAnswered: 0, interested: 0 }) : (task.memberStats?.[memberId] || { total: 0, answered: 0, notAnswered: 0, interested: 0 });
     const totals = (assigned as any[]).reduce((a: any, m: any) => { const s = getStats(m.id); return { total: a.total + s.total, answered: a.answered + s.answered, notAnswered: a.notAnswered + s.notAnswered, interested: a.interested + s.interested }; }, { total: 0, answered: 0, notAnswered: 0, interested: 0 });
     const aRate = totals.total > 0 ? Math.round(totals.answered / totals.total * 100) : 0;
@@ -246,7 +210,6 @@ export function DailyPage({
               <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
                 <MemberAvatarRow assignedMembers={assigned} />
                 {isLinked && <span style={{ fontSize: 10, fontWeight: 700, color: "#7c3aed", background: "#f5f3ff", padding: "2px 8px", borderRadius: 20, border: "1px solid #ddd6fe" }}>📊 {task.linkedCampaign}</span>}
-                {!isLinked && task.id.startsWith("sheet-sync-") && <span style={{ fontSize: 10, fontWeight: 700, color: "#059669", background: "#ecfdf5", padding: "2px 8px", borderRadius: 20, border: "1px solid #a7f3d0" }}>Synced from Sheet</span>}
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
@@ -354,10 +317,6 @@ export function DailyPage({
                 )}
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                   <button className="ghost-btn" style={{ fontSize: 12, padding: "6px 12px" }} onClick={() => addLead(task.id)}>+ Add Lead</button>
-                  <button className="ghost-btn" style={{ fontSize: 12, padding: "6px 12px", display: "flex", alignItems: "center", gap: 5 }} onClick={() => { setEmailTo(""); setEmailModal({ task }); }}>
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" /><polyline points="22,6 12,13 2,6" /></svg>
-                    Email Broadcaster
-                  </button>
                   {(task.leads || []).length > 0 && (
                     <button className="ghost-btn" style={{ fontSize: 12, padding: "6px 12px", display: "flex", alignItems: "center", gap: 5 }} onClick={() => {
                       const lines = (task.leads || []).map((l: any, i: number) => `${i + 1}. ${l.agentName || "—"}  |  ${l.phone || "—"}  |  ${l.remark || "—"}`);
@@ -729,20 +688,6 @@ export function DailyPage({
         </div>
       )}
 
-      {/* Email broadcaster modal */}
-      {emailModal && (
-        <div className="modal-overlay" onClick={() => setEmailModal(null)}>
-          <div className="confirm-modal" onClick={e => e.stopPropagation()}>
-            <div style={{ fontWeight: 800, fontSize: 17, marginBottom: 6, letterSpacing: -.3 }}>Email Broadcaster</div>
-            <div style={{ fontSize: 13, color: "#555", marginBottom: 16, lineHeight: 1.6 }}>Enter the broadcaster's email address. Your email client will open with the stats and leads pre-filled.</div>
-            <input autoFocus type="email" className="text-input" placeholder="broadcaster@example.com" value={emailTo} onChange={e => setEmailTo(e.target.value)} onKeyDown={e => e.key === "Enter" && emailTo.trim() && sendEmail(emailModal.task)} style={{ marginBottom: 16 }} />
-            <div style={{ display: "flex", gap: 10 }}>
-              <button className="ghost-btn" style={{ flex: 1 }} onClick={() => setEmailModal(null)}>Cancel</button>
-              <button className="primary-btn" style={{ flex: 1, opacity: emailTo.trim() ? 1 : .4, cursor: emailTo.trim() ? "pointer" : "not-allowed" }} onClick={() => emailTo.trim() && sendEmail(emailModal.task)}>Open Email</button>
-            </div>
-          </div>
-        </div>
-      )}
     </>
   );
 }

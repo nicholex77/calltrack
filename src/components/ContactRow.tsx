@@ -385,6 +385,29 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             </div>
           )}
 
+          {/* Activity timeline */}
+          {(c.history || []).length > 0 && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Activity</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
+                {([...(c.history || [])].reverse() as any[]).map((h: any) => {
+                  const toSm = (CONTACT_STATUS_META as any)[h.to] || { label: h.to, color: "#888", bg: "#f3f4f6" };
+                  const fromSm = h.from ? (CONTACT_STATUS_META as any)[h.from] : null;
+                  return (
+                    <div key={h.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 11, padding: "5px 8px", background: "#fafafa", borderRadius: 7 }}>
+                      <span style={{ flexShrink: 0, color: "#bbb", minWidth: 60 }}>{h.timestamp ? new Date(h.timestamp).toLocaleDateString("en-MY", { day: "numeric", month: "short" }) : "—"}</span>
+                      <span style={{ color: "#888", flexShrink: 0 }}>{h.by || "—"}</span>
+                      <span style={{ flex: 1, display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                        {fromSm && <><span style={{ color: fromSm.color, fontWeight: 600 }}>{fromSm.label}</span><span style={{ color: "#ccc" }}>→</span></>}
+                        <span style={{ color: toSm.color, fontWeight: 700 }}>{toSm.label}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Notes */}
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Notes {(c.notes || []).length > 0 && <span style={{ color: "#1a56db" }}>({(c.notes || []).length})</span>}</div>

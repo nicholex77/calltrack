@@ -66,13 +66,28 @@ export function DashboardPage({ contacts, members, isManager, loggedInMemberName
 
   // ── Activity feed ─────────────────────────────────────────────────────────
   const activityFeed = useMemo(() => {
-    return visible.flatMap(c =>
+    const statusEvents = visible.flatMap(c =>
       (c.history || []).filter(h => h.type === "status").map(h => ({
         ...h,
+        kind: "status" as const,
         contactName: c.name,
         contactId: c.id,
       }))
-    ).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 10);
+    );
+    const noteEvents = visible.flatMap(c =>
+      (c.notes || []).map((n: any) => ({
+        id: n.id,
+        timestamp: n.timestamp,
+        by: n.author,
+        kind: "note" as const,
+        text: n.text,
+        contactName: c.name,
+        contactId: c.id,
+      }))
+    );
+    return [...statusEvents, ...noteEvents]
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 12);
   }, [visible]);
 
   // ── Monthly targets ───────────────────────────────────────────────────────
@@ -105,7 +120,11 @@ export function DashboardPage({ contacts, members, isManager, loggedInMemberName
               onMouseEnter={e => (e.currentTarget.style.background = "#f8faff")} onMouseLeave={e => (e.currentTarget.style.background = "")}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600, fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
-                <div style={{ fontSize: 11, color: "#888" }}>{c.salesAgent || "Unassigned"}</div>
+                <div style={{ fontSize: 11, color: "#888", display: "flex", gap: 6, alignItems: "center" }}>
+                  {c.phone && <a href={`tel:${c.phone}`} onClick={e => e.stopPropagation()} style={{ color: "#1a56db", textDecoration: "none", fontWeight: 600 }}>{c.phone}</a>}
+                  {c.phone && c.salesAgent && <span>·</span>}
+                  <span>{c.salesAgent || "Unassigned"}</span>
+                </div>
               </div>
               <span style={{ fontSize: 10, fontWeight: 700, color: sm.color, background: sm.bg, padding: "2px 7px", borderRadius: 20, flexShrink: 0 }}>{sm.label}</span>
             </div>
@@ -171,7 +190,7 @@ export function DashboardPage({ contacts, members, isManager, loggedInMemberName
             ? <div style={{ padding: "20px 16px", fontSize: 12, color: "#bbb", textAlign: "center" }}>No activity yet</div>
             : activityFeed.map((h: any) => {
               const fromSm = h.from ? CONTACT_STATUS_META[h.from] : null;
-              const toSm = CONTACT_STATUS_META[h.to] || { label: h.to, color: "#888", bg: "#f3f4f6" };
+              const toSm = h.kind === "status" ? (CONTACT_STATUS_META[h.to] || { label: h.to, color: "#888", bg: "#f3f4f6" }) : null;
               return (
                 <div key={h.id} onClick={() => onViewContact(h.contactId)} style={{ padding: "9px 16px", borderBottom: "1px solid #f8f8f8", cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start" }}
                   onMouseEnter={e => (e.currentTarget.style.background = "#f8faff")} onMouseLeave={e => (e.currentTarget.style.background = "")}>
@@ -179,8 +198,15 @@ export function DashboardPage({ contacts, members, isManager, loggedInMemberName
                     <div style={{ fontSize: 12, fontWeight: 600 }}>{h.contactName}</div>
                     <div style={{ fontSize: 11, color: "#888", marginTop: 2, display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                       <span>{h.by || "—"}</span>
-                      {fromSm && <><span style={{ color: fromSm.color }}>{fromSm.label}</span><span>→</span></>}
-                      <span style={{ color: toSm.color, fontWeight: 700 }}>{toSm.label}</span>
+                      {h.kind === "status" && toSm && (
+                        <>
+                          {fromSm && <><span style={{ color: fromSm.color }}>{fromSm.label}</span><span>→</span></>}
+                          <span style={{ color: toSm.color, fontWeight: 700 }}>{toSm.label}</span>
+                        </>
+                      )}
+                      {h.kind === "note" && (
+                        <span style={{ color: "#555", fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180 }}>"{h.text}"</span>
+                      )}
                     </div>
                   </div>
                   <span style={{ fontSize: 10, color: "#bbb", flexShrink: 0, marginTop: 2 }}>{fmtNoteTime(h.timestamp)}</span>
