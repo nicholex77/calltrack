@@ -32,6 +32,9 @@ export const contactToDb = (c: any) => ({
   last_touched: c.lastTouched || null, callback_date: c.callbackDate || null, notes: c.notes || [], history: c.history || [],
   email: c.email || null, recall_date: c.reContactDate || null,
   tags: c.tags || [], answers: c.answers || {},
+  rejection_reason: c.rejectionReason || null, rejection_note: c.rejectionNote || null,
+  deal_value: c.dealValue ?? null, source: c.source || null,
+  next_follow_up: c.nextFollowUp || null, closed_at: c.closedAt || null, closed_status: c.closedStatus || null,
 });
 
 export const dbToContact = (r: any) => ({
@@ -42,6 +45,10 @@ export const dbToContact = (r: any) => ({
   lastTouched: r.last_touched || "", callbackDate: r.callback_date || "", notes: r.notes || [], history: r.history || [],
   email: r.email || "", reContactDate: r.recall_date || "",
   tags: r.tags || [], answers: r.answers || {},
+  rejectionReason: r.rejection_reason || undefined, rejectionNote: r.rejection_note || undefined,
+  dealValue: r.deal_value ?? undefined, source: r.source || undefined,
+  nextFollowUp: r.next_follow_up || undefined, closedAt: r.closed_at || undefined,
+  closedStatus: r.closed_status || undefined,
 });
 
 export const loadRemoteContacts = async (): Promise<any[]> => {

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useDeferredValue, useEffect } from "react";
 import { initials, uid, todayKey, addDays, scoreContact } from "../lib/utils";
 import { saveLocalContacts, upsertContact, upsertContacts, deleteRemoteContact, deleteRemoteContacts } from "../lib/contacts-db";
-import { CONTACT_STATUS_META } from "../lib/constants";
+import { CONTACT_STATUS_META, LEAD_SOURCES } from "../lib/constants";
 import { parseContactsCSV } from "../lib/csv-import";
 import { ContactRow } from "../components/ContactRow";
 import type { Contact, Member, ToastAction } from "../types";
@@ -32,7 +32,7 @@ export function ContactsPage({
   initialOpenContactId, onInitialOpenContactIdConsumed,
 }: Props) {
   const [contactSearch, setContactSearch] = useState("");
-  const [contactFilters, setContactFilters] = useState<Record<string,string[]>>({status:[],lead:[],campaign:[],agent:[],tag:[]});
+  const [contactFilters, setContactFilters] = useState<Record<string,string[]>>({status:[],lead:[],campaign:[],agent:[],tag:[],source:[]});
   const [activeFilterDropdown, setActiveFilterDropdown] = useState<string|null>(null);
   const [contactSelectMode, setContactSelectMode] = useState(false);
   const [selectedContactIds, setSelectedContactIds] = useState<Set<string>>(new Set());
@@ -89,7 +89,8 @@ export function ContactsPage({
       if(cf.campaign?.length && !cf.campaign.includes(c.campaign||"")) return false;
       if(cf.agent?.length)   { const a = c.salesAgent||"__none__"; if(!cf.agent.includes(a)) return false; }
       if(cf.lead?.length)    { const l = c.leadStatus||"unclassified"; if(!cf.lead.includes(l)) return false; }
-      if(cf.tag?.length)     { const ts = c.tags||[]; if(!cf.tag.some((t:string)=>ts.includes(t))) return false; }
+      if(cf.tag?.length)    { const ts = c.tags||[]; if(!cf.tag.some((t:string)=>ts.includes(t))) return false; }
+      if(cf.source?.length && !cf.source.includes(c.source||"")) return false;
       if(contactDateFrom && (c.lastTouched||"") < contactDateFrom) return false;
       if(contactDateTo   && (c.lastTouched||"") > contactDateTo)   return false;
       if(q && !`${c.name} ${c.phone} ${c.phone2||""} ${c.storeType||""} ${c.company||""} ${c.storeId||""} ${c.renId||""} ${c.email||""}`.toLowerCase().includes(q)) return false;
@@ -113,7 +114,8 @@ export function ContactsPage({
       if(contactSort==="stale")  return staleD(b)-staleD(a);
       if(contactSort==="hot")    return (leadP[b.leadStatus]||0)-(leadP[a.leadStatus]||0);
       if(contactSort==="queue")  return queueScore(b)-queueScore(a);
-      if(contactSort==="score")  return scoreContact(b)-scoreContact(a);
+      if(contactSort==="score")     return scoreContact(b)-scoreContact(a);
+      if(contactSort==="dealValue") return ((b as any).dealValue||0)-((a as any).dealValue||0);
       return ({interested:3,callback:2,contacted:1}[b.status as string]||0)-({interested:3,callback:2,contacted:1}[a.status as string]||0);
     });
   }, [contacts, contactFilters, deferredSearch, contactSort, contactDateFrom, contactDateTo]);
@@ -125,7 +127,7 @@ export function ContactsPage({
   }, []);
 
   const clearContactFilters = useCallback(() => {
-    setContactFilters({status:[],lead:[],campaign:[],agent:[],tag:[]});
+    setContactFilters({status:[],lead:[],campaign:[],agent:[],tag:[],source:[]});
     setContactDateFrom(""); setContactDateTo(""); setContactLimit(100);
   }, []);
 
@@ -216,7 +218,8 @@ export function ContactsPage({
         const h = [...(c.history||[])];
         if(c.status!==status) h.unshift({id:uid(),type:"status",from:c.status,to:status,by:author||"",timestamp:ts});
         else h.unshift({id:uid(),type:"call",status,by:author||"",timestamp:ts});
-        return {...c, status, lastTouched:currentDate, history:h};
+        const closed = status==="closed_won" ? {closedStatus:"won",closedAt:currentDate} : status==="closed_lost" ? {closedStatus:"lost",closedAt:currentDate} : {};
+        return {...c, status, lastTouched:currentDate, history:h, ...closed};
       });
       const u = next.find((c:any) => c.id===contactId); if(u) { saveLocalContacts(next); upsertContact(u as any); }
       return next;
@@ -231,9 +234,10 @@ export function ContactsPage({
     });
   }, [setContacts]);
 
-  const updateContactField = useCallback((contactId:string, field:string, value:string) => {
+  const updateContactField = useCallback((contactId:string, field:string, value:any) => {
+    const parsed = field === "dealValue" ? (parseFloat(value) || undefined) : value;
     setContacts(prev => {
-      const next = prev.map((c:any) => c.id===contactId ? {...c,[field]:value} : c);
+      const next = prev.map((c:any) => c.id===contactId ? {...c,[field]:parsed} : c);
       const u = next.find((c:any) => c.id===contactId); if(u) { saveLocalContacts(next); upsertContact(u as any); }
       return next;
     });
@@ -375,9 +379,11 @@ export function ContactsPage({
   // ── Render ──────────────────────────────────────────────────────────────────
   const anyActive = Object.values(contactFilters).some((a:any) => a.length>0) || contactSearch.trim().length>0 || !!contactDateFrom || !!contactDateTo;
   const filtered  = filteredContacts;
+  const filteredPipelineValue = filtered.reduce((s:number,c:any) => s+(c.dealValue||0), 0);
   const filterDefs = [
-    {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"},{val:"not_answered",label:"Not Answered"},{val:"hangup",label:"Hung Up"}]},
+    {key:"status",  label:"Status",   options:[{val:"interested",label:"Interested"},{val:"callback",label:"Callback"},{val:"contacted",label:"Contacted"},{val:"not_answered",label:"Not Answered"},{val:"hangup",label:"Hung Up"},{val:"closed_won",label:"Closed Won"},{val:"closed_lost",label:"Closed Lost"}]},
     {key:"lead",    label:"Lead",     options:[{val:"hot",label:"🔴 Hot"},{val:"warm",label:"🟡 Warm"},{val:"cold",label:"🔵 Cold"},{val:"unclassified",label:"Unclassified"}]},
+    {key:"source",  label:"Source",   options:LEAD_SOURCES.map(s=>({val:s,label:s}))},
     {key:"campaign",label:"Campaign", options:contactCampaigns.map(cp=>({val:cp,label:cp}))},
     {key:"agent",   label:"Agent",    options:[...contactAgentOpts.map(a=>({val:a,label:a})),{val:"__none__",label:"Unassigned"}]},
     {key:"tag",     label:"Tag",      options:contactTagOpts.map(t=>({val:t,label:t}))},
@@ -391,6 +397,7 @@ export function ContactsPage({
         <div>
           <div style={{fontWeight:800,fontSize:22,letterSpacing:-.5}}>Contacts</div>
           <div style={{fontSize:13,color:"#888",marginTop:2}}>{contacts.length} total · {filtered.length} shown{anyActive?" (filtered)":""}</div>
+          {filteredPipelineValue > 0 && <div style={{fontSize:12,color:"#059669",fontWeight:700,marginTop:2}}>Pipeline: RM {filteredPipelineValue.toLocaleString()}</div>}
         </div>
         <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
           {contactSelectMode&&selectedContactIds.size>0&&(
@@ -526,7 +533,7 @@ export function ContactsPage({
           );
         })()}
         <select value={contactSort} onChange={e=>setContactSort(e.target.value)} style={{border:"1.5px solid #e5e5e5",borderRadius:9,padding:"7px 11px",fontSize:12,fontFamily:"inherit",outline:"none",background:"#fff",color:"#555",cursor:"pointer"}}>
-          <option value="status">Sort: Status</option><option value="queue">🔥 Priority Queue</option><option value="name">A → Z</option><option value="newest">Newest First</option><option value="stale">Most Stale</option><option value="hot">Hot Leads First</option><option value="score">⭐ Score</option>
+          <option value="status">Sort: Status</option><option value="queue">🔥 Priority Queue</option><option value="name">A → Z</option><option value="newest">Newest First</option><option value="stale">Most Stale</option><option value="hot">Hot Leads First</option><option value="score">⭐ Score</option><option value="dealValue">💰 Deal Value</option>
         </select>
         {anyActive&&<button onClick={clearContactFilters} style={{padding:"7px 12px",borderRadius:9,border:"1.5px solid #e5e5e5",background:"#fff",color:"#ef4444",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit"}}>✕ Clear all</button>}
         {isManager&&<button onClick={openDedupModal} style={{padding:"7px 14px",borderRadius:9,border:"1.5px solid #7c3aed",background:"#f5f3ff",color:"#7c3aed",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"inherit"}}>Find Duplicates</button>}

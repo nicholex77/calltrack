@@ -32,6 +32,7 @@ export function PipelinePage({
   const [search, setSearch] = useState("");
   const [campaignFilter, setCampaignFilter] = useState("");
   const [agentFilter, setAgentFilter] = useState("");
+  const [showClosed, setShowClosed] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -42,12 +43,13 @@ export function PipelinePage({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return contacts.filter(c => {
+      if (!showClosed && (c.status === "closed_won" || c.status === "closed_lost")) return false;
       if (campaignFilter && c.campaign !== campaignFilter) return false;
       if (agentFilter && (c.salesAgent || "__none__") !== agentFilter) return false;
       if (q && !`${c.name} ${c.phone} ${c.storeType || ""} ${c.company || ""}`.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [contacts, search, campaignFilter, agentFilter]);
+  }, [contacts, search, campaignFilter, agentFilter, showClosed]);
 
   const handleDragStart = useCallback((e: React.DragEvent, contactId: string) => {
     setDraggingId(contactId);
@@ -67,11 +69,15 @@ export function PipelinePage({
   const handleDrop = useCallback((e: React.DragEvent, targetStatus: string) => {
     e.preventDefault();
     setDraggingId(prev => {
-      if (prev) updateStatus(prev, targetStatus, currentDate, author);
+      if (prev) {
+        const src = contacts.find(c => c.id === prev);
+        if (src && (src.status === "closed_won" || src.status === "closed_lost")) return null;
+        updateStatus(prev, targetStatus, currentDate, author);
+      }
       return null;
     });
     setDragOverColumn(null);
-  }, [updateStatus, currentDate, author]);
+  }, [updateStatus, currentDate, author, contacts]);
 
   const detail = detailId ? contacts.find(c => c.id === detailId) || null : null;
   const anyFilter = !!(search || campaignFilter || agentFilter);
@@ -115,6 +121,10 @@ export function PipelinePage({
             <option value="__none__">Unassigned</option>
           </select>
         )}
+        <button
+          onClick={() => setShowClosed(v => !v)}
+          style={{ padding: "7px 12px", borderRadius: 9, border: `1.5px solid ${showClosed ? "#059669" : "#e5e5e5"}`, background: showClosed ? "#dcfce7" : "#fff", color: showClosed ? "#059669" : "#555", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+        >{showClosed ? "Hide Closed" : "Show Closed"}</button>
         {anyFilter && (
           <button
             onClick={() => { setSearch(""); setCampaignFilter(""); setAgentFilter(""); }}
@@ -127,6 +137,7 @@ export function PipelinePage({
       <div className="pipeline-wrap" onDragEnd={handleDragEnd}>
         {PIPELINE_COLS.map(col => {
           const cards = filtered.filter(c => c.status === col.key);
+          const colValue = cards.reduce((s, c) => s + ((c as any).dealValue || 0), 0);
           const isOver = dragOverColumn === col.key;
           return (
             <div
@@ -138,7 +149,10 @@ export function PipelinePage({
               onDrop={e => handleDrop(e, col.key)}
             >
               <div style={{ background: col.bg, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontWeight: 800, fontSize: 13, color: col.color, textTransform: "uppercase", letterSpacing: .5 }}>{col.label}</span>
+                <div>
+                  <span style={{ fontWeight: 800, fontSize: 13, color: col.color, textTransform: "uppercase", letterSpacing: .5 }}>{col.label}</span>
+                  {colValue > 0 && <div style={{ fontSize: 10, color: col.color, opacity: .8, marginTop: 1 }}>RM {colValue.toLocaleString()}</div>}
+                </div>
                 <span style={{ background: col.color, color: "#fff", borderRadius: 99, padding: "1px 8px", fontSize: 11, fontWeight: 800 }}>{cards.length}</span>
               </div>
               <div className={`pipeline-col-body${isOver ? " drag-over" : ""}`} style={{ background: isOver ? col.bg + "40" : "#fafafa" }}>

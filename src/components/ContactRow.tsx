@@ -1,5 +1,5 @@
 import React from "react";
-import { CONTACT_STATUS_META, CONTACT_LEAD_META, REJECTION_REASONS } from "../lib/constants";
+import { CONTACT_STATUS_META, CONTACT_LEAD_META, REJECTION_REASONS, LEAD_SOURCES } from "../lib/constants";
 import { staleness, initials, fmt, fmtNoteTime, scoreContact } from "../lib/utils";
 import { safeCopy } from "../lib/security";
 
@@ -66,7 +66,7 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
 
   const handleStatusClick = React.useCallback((st: string) => {
     if (st === "contacted" || st === "hangup") { setPendingStatus(st); }
-    else { onStatus(c.id, st, authorName); }
+    else { onStatus(c.id, st, authorName); setPendingStatus(null); }
   }, [c.id, authorName, onStatus]);
   const tags: string[] = c.tags || [];
   const answers: Record<string, any> = c.answers || {};
@@ -128,6 +128,8 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             {st && <span className={st.cls}>{st.label}</span>}
             {lm && <span style={{ fontSize: 10, fontWeight: 700, color: lm.color, background: lm.bg, padding: "2px 7px", borderRadius: 20 }}>{lm.label}</span>}
             <span style={{ fontSize: 11, fontWeight: 700, color: sm.color, background: sm.bg, padding: "2px 8px", borderRadius: 20 }}>{sm.label}</span>
+            {c.source && <span style={{ fontSize: 10, fontWeight: 600, color: "#6b7280", background: "#f3f4f6", padding: "2px 7px", borderRadius: 20 }}>{c.source}</span>}
+            {c.dealValue != null && <span style={{ fontSize: 10, fontWeight: 700, color: "#059669", background: "#dcfce7", padding: "2px 7px", borderRadius: 20 }}>RM {Number(c.dealValue).toLocaleString()}</span>}
             {c.campaign && <span style={{ fontSize: 10, fontWeight: 600, color: "#7c3aed", background: "#f5f3ff", padding: "2px 7px", borderRadius: 20, maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.campaign}</span>}
             {c.salesAgent && <span style={{ fontSize: 11, color: "#555", background: "#f5f5f5", padding: "2px 8px", borderRadius: 20 }}>{c.salesAgent}</span>}
             {tags.slice(0, 2).map((t: string) => <span key={t} style={{ fontSize: 10, fontWeight: 600, color: "#0e7490", background: "#ecfeff", padding: "2px 7px", borderRadius: 20, border: "1px solid #a5f3fc" }}>#{t}</span>)}
@@ -162,6 +164,32 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             {editRow("Re-contact Date", "reContactDate", c.reContactDate || "", "date")}
             {editRow("Campaign", "campaign", c.campaign || "")}
             {editTextarea("Remarks / State", "remarks", c.remarks || "")}
+            {/* Source dropdown */}
+            <div style={{ padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>Lead Source</div>
+              <select value={c.source || ""} onChange={e => onUpdate(c.id, "source", e.target.value)} style={inputStyle}>
+                <option value="">— Select source —</option>
+                {LEAD_SOURCES.map((s: string) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            {/* Deal Value */}
+            <div style={{ padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>Deal Value (RM)</div>
+              <input
+                type="number" key={c.dealValue ?? ""} defaultValue={c.dealValue ?? ""}
+                style={inputStyle}
+                onFocus={e => (e.target.style.borderColor = "#1a56db")}
+                onBlur={e => { e.target.style.borderColor = "#e5e5e5"; const v = parseFloat(e.target.value); if ((v || 0) !== (c.dealValue || 0)) onUpdate(c.id, "dealValue", e.target.value); }}
+              />
+            </div>
+            {/* Next Follow-Up */}
+            <div style={{ padding: "8px 0", borderBottom: "1px solid #f0f0f0" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>Next Follow-Up</div>
+              <input type="date" key={c.nextFollowUp || ""} defaultValue={c.nextFollowUp || ""} style={inputStyle}
+                onFocus={e => (e.target.style.borderColor = "#1a56db")}
+                onBlur={e => { e.target.style.borderColor = "#e5e5e5"; if (e.target.value !== (c.nextFollowUp || "")) onUpdate(c.id, "nextFollowUp", e.target.value); }}
+              />
+            </div>
           </div>
 
           {/* Call + Lead status */}
@@ -194,6 +222,15 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
               </div>
             </div>
           </div>
+
+          {/* Close Deal — only visible when not already closed */}
+          {c.status !== "closed_won" && c.status !== "closed_lost" && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1.5px solid #e8efff", display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5 }}>Close Deal</span>
+              <button onClick={() => handleStatusClick("closed_won")} style={{ padding: "5px 14px", borderRadius: 8, border: "1.5px solid #a7f3d0", background: "#dcfce7", color: "#059669", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Closed Won</button>
+              <button onClick={() => handleStatusClick("closed_lost")} style={{ padding: "5px 14px", borderRadius: 8, border: "1.5px solid #e5e5e5", background: "#f3f4f6", color: "#6b7280", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Closed Lost</button>
+            </div>
+          )}
 
           {/* Rejection reason picker — required for contacted/hangup */}
           {pendingStatus && (

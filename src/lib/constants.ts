@@ -20,6 +20,8 @@ export const CONTACT_STATUS_META: Record<string, { label: string; color: string;
   contacted:    { label: "Contacted",    color: "#2563eb", bg: "#eff6ff" },
   not_answered: { label: "Not Answered", color: "#6b7280", bg: "#f3f4f6" },
   hangup:       { label: "Hung Up",      color: "#ef4444", bg: "#fff1f2" },
+  closed_won:   { label: "Closed Won",   color: "#059669", bg: "#dcfce7" },
+  closed_lost:  { label: "Closed Lost",  color: "#6b7280", bg: "#f3f4f6" },
 };
 
 export const CONTACT_LEAD_META: Record<string, { label: string; color: string; bg: string }> = {
@@ -29,10 +31,17 @@ export const CONTACT_LEAD_META: Record<string, { label: string; color: string; b
 };
 
 export const PIPELINE_COLS = [
-  { key: "contacted",  label: "Contacted",  color: "#2563eb", bg: "#eff6ff" },
-  { key: "callback",   label: "Callback",   color: "#d97706", bg: "#fffbeb" },
-  { key: "interested", label: "Interested", color: "#059669", bg: "#f0fdf4" },
+  { key: "contacted",   label: "Contacted",   color: "#2563eb", bg: "#eff6ff" },
+  { key: "callback",    label: "Callback",    color: "#d97706", bg: "#fffbeb" },
+  { key: "interested",  label: "Interested",  color: "#059669", bg: "#f0fdf4" },
+  { key: "closed_won",  label: "Closed Won",  color: "#059669", bg: "#dcfce7" },
+  { key: "closed_lost", label: "Closed Lost", color: "#6b7280", bg: "#f3f4f6" },
+];
+
+export const LEAD_SOURCES = [
+  "Cold Call", "Referral", "Walk-in", "Social Media", "Campaign", "Other",
 ] as const;
+export type LeadSource = typeof LEAD_SOURCES[number];
 
 export const REJECTION_REASONS = [
   { key: "too_expensive",  label: "Too expensive" },

@@ -17,14 +17,14 @@ import { WeeklyPage } from "./pages/WeeklyPage";
 import { ContactsPage } from "./pages/ContactsPage";
 import { PipelinePage } from "./pages/PipelinePage";
 import { TemplatesPage } from "./pages/TemplatesPage";
-import { StatsPage } from "./pages/StatsPage";
-import { RejectionPage } from "./pages/RejectionPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { AnalyticsPage } from "./pages/AnalyticsPage";
 import { ExportPage } from "./pages/ExportPage";
 import { MembersPage } from "./pages/MembersPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
 export default function App() {
-  const [page, setPage]                         = useState("daily");
+  const [page, setPage]                         = useState("dashboard");
   const [currentDate, setCurrentDate]           = useState(todayKey());
   const [selectedTaskId, setSelectedTaskId]     = useState<string|null>(null);
   const [weekOffset, setWeekOffset]             = useState(0);
@@ -32,7 +32,7 @@ export default function App() {
   const [exportTab, setExportTab]               = useState("telesales");
   const [exportRange, setExportRange]           = useState("week");
   const [exporting, setExporting]               = useState(false);
-  const [statsTab, setStatsTab]                 = useState<"agents"|"campaigns"|"funnel"|"log"|"activity">("agents");
+  const [analyticsTab, setAnalyticsTab]         = useState<"overview"|"agents"|"pipeline"|"campaigns"|"rejections">("overview");
   const [exportDateFrom, setExportDateFrom]     = useState("");
   const [exportDateTo, setExportDateTo]         = useState("");
   const [memberInput, setMemberInput]           = useState("");
@@ -42,7 +42,7 @@ export default function App() {
   const [initialOpenContactId, setInitialOpenContactId] = useState<string|null>(null);
 
   // ── Hooks ─────────────────────────────────────────────────────────────────
-  const handleLockUI = useCallback(() => { setPage("daily"); setSelectedTaskId(null); }, []);
+  const handleLockUI = useCallback(() => { setPage("dashboard"); setSelectedTaskId(null); }, []);
   const { toast, toastAction, showToast, dismissToast } = useToast();
   const { session, profile, authLoading, profileError, isManager, handleLock, selectedMemberName, setSelectedMemberName } = useAuth(handleLockUI);
   const { db, updateDb, syncing, syncError, isOnline } = useSync();
@@ -167,8 +167,8 @@ export default function App() {
   // ── Nav + previews ────────────────────────────────────────────────────────
   const hasUnsaved = (db.days?.[currentDate]?.tasks || []).some((t: any) => !t.saved);
   const navItems = isManager
-    ? [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["rejections","Rejections"],["export","Export"],["members","Members"],["settings","Settings"]]
-    : [["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["stats","Stats"],["rejections","Rejections"],["export","Export"],["members","Members"]];
+    ? [["dashboard","Dashboard"],["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["analytics","Analytics"],["export","Export"],["members","Members"],["settings","Settings"]]
+    : [["dashboard","Dashboard"],["daily","Daily"],["weekly","Weekly"],["contacts","Contacts"],["pipeline","Pipeline"],["templates","Templates"],["analytics","Analytics"],["export","Export"],["members","Members"]];
 
   const perfSummary = buildPerformanceSummary(exportCtx);
   const previewRows = getPreviewRows(exportTab, exportRange, exportCtx);
@@ -242,20 +242,23 @@ export default function App() {
           <TemplatesPage db={db} updateDb={updateDb} showToast={showToast} isManager={isManager} contactCampaigns={contactCampaigns} />
         )}
 
-        {/* STATS */}
-        {page === "stats" && (
-          <StatsPage
+        {/* DASHBOARD */}
+        {page === "dashboard" && (
+          <DashboardPage
             contacts={contacts} members={members}
-            statsTab={statsTab} setStatsTab={setStatsTab}
-            onReassignStale={isManager ? (agentName) => { setReassignAgent(agentName); setPage("contacts"); } : () => {}}
-            loggedInMemberName={loggedInMemberName}
+            isManager={isManager} loggedInMemberName={loggedInMemberName}
+            callTarget={callTarget} intTarget={intTarget}
+            currentDate={currentDate}
+            onViewContact={(id) => { setInitialOpenContactId(id); setPage("contacts"); }}
           />
         )}
 
-        {/* REJECTIONS */}
-        {page === "rejections" && (
-          <RejectionPage
+        {/* ANALYTICS */}
+        {page === "analytics" && (
+          <AnalyticsPage
             contacts={contacts} members={members}
+            analyticsTab={analyticsTab} setAnalyticsTab={setAnalyticsTab}
+            onReassignStale={isManager ? (agentName: string) => { setReassignAgent(agentName); setPage("contacts"); } : () => {}}
             loggedInMemberName={loggedInMemberName}
           />
         )}

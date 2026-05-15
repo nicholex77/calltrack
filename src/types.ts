@@ -155,6 +155,11 @@ export interface Contact {
   answers?: Record<string, any>;
   rejectionReason?: string;
   rejectionNote?: string;
+  dealValue?: number;
+  source?: string;
+  nextFollowUp?: string;
+  closedAt?: string;
+  closedStatus?: "won" | "lost";
 }
 
 export interface ConfirmModal {

@@ -114,7 +114,6 @@ export function useContacts() {
   }, [mutateContact]);
 
   const updateStatus = useCallback((id: string, status: string, currentDate: string, author?: string) => {
-    // Stamp at noon UTC so history timestamps survive lastTouched overwrites
     const ts = `${currentDate}T12:00:00.000Z`;
     mutateContact(id, c => {
       if (!c.history) c.history = [];
@@ -125,6 +124,8 @@ export function useContacts() {
         c.history.unshift({ id: uid(), type: "call", status, by: author || "", timestamp: ts });
       }
       c.lastTouched = currentDate;
+      if (status === "closed_won")  { c.closedStatus = "won";  c.closedAt = currentDate; }
+      if (status === "closed_lost") { c.closedStatus = "lost"; c.closedAt = currentDate; }
     });
   }, [mutateContact]);
 
