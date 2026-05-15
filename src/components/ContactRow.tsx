@@ -1,6 +1,6 @@
 import React from "react";
-import { CONTACT_STATUS_META, CONTACT_LEAD_META, REJECTION_REASONS, LEAD_SOURCES } from "../lib/constants";
-import { staleness, initials, fmt, fmtNoteTime, scoreContact } from "../lib/utils";
+import { CONTACT_STATUS_META, CONTACT_LEAD_META, REJECTION_REASONS, LEAD_SOURCES, NOTE_TYPES } from "../lib/constants";
+import { staleness, initials, fmt, scoreContact } from "../lib/utils";
 import { safeCopy } from "../lib/security";
 
 const getRejCounts = (): Record<string, number> => {
@@ -25,6 +25,7 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
   const scoreBg = score >= 70 ? "#f0fdf4" : score >= 40 ? "#fffbeb" : "#f9f9f9";
   const scoreColor = score >= 70 ? "#059669" : score >= 40 ? "#d97706" : "#9ca3af";
   const [noteText, setNoteText] = React.useState("");
+  const [noteType, setNoteType] = React.useState("call");
   const [tagInput, setTagInput] = React.useState("");
   const [swipeOpen, setSwipeOpen] = React.useState(false);
   const [showTpl, setShowTpl] = React.useState(false);
@@ -385,45 +386,68 @@ export const ContactRow = React.memo(function ContactRow({ c, isOpen, isSelected
             </div>
           )}
 
-          {/* Activity timeline */}
-          {(c.history || []).length > 0 && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Activity</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 180, overflowY: "auto" }}>
-                {([...(c.history || [])].reverse() as any[]).map((h: any) => {
-                  const toSm = (CONTACT_STATUS_META as any)[h.to] || { label: h.to, color: "#888", bg: "#f3f4f6" };
-                  const fromSm = h.from ? (CONTACT_STATUS_META as any)[h.from] : null;
-                  return (
-                    <div key={h.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 11, padding: "5px 8px", background: "#fafafa", borderRadius: 7 }}>
-                      <span style={{ flexShrink: 0, color: "#bbb", minWidth: 60 }}>{h.timestamp ? new Date(h.timestamp).toLocaleDateString("en-MY", { day: "numeric", month: "short" }) : "—"}</span>
-                      <span style={{ color: "#888", flexShrink: 0 }}>{h.by || "—"}</span>
-                      <span style={{ flex: 1, display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
-                        {fromSm && <><span style={{ color: fromSm.color, fontWeight: 600 }}>{fromSm.label}</span><span style={{ color: "#ccc" }}>→</span></>}
-                        <span style={{ color: toSm.color, fontWeight: 700 }}>{toSm.label}</span>
-                      </span>
-                    </div>
-                  );
-                })}
+          {/* Unified activity log — status changes + notes merged chronologically */}
+          {((c.history || []).length > 0 || (c.notes || []).length > 0) && (() => {
+            const statusItems = (c.history || []).map((h: any) => ({ ...h, _kind: "status" }));
+            const noteItems = (c.notes || []).map((n: any) => ({ ...n, _kind: "note" }));
+            const items = [...statusItems, ...noteItems]
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+              .slice(0, 25);
+            return (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>
+                  Activity <span style={{ color: "#1a56db" }}>({items.length})</span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 220, overflowY: "auto" }}>
+                  {items.map((item: any) => {
+                    if (item._kind === "note") {
+                      const nt = NOTE_TYPES.find(t => t.key === item.noteType) || NOTE_TYPES[4];
+                      return (
+                        <div key={item.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 11, padding: "6px 8px", background: "#fafafa", borderRadius: 7 }}>
+                          <span style={{ flexShrink: 0, color: "#bbb", minWidth: 60 }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString("en-MY", { day: "numeric", month: "short" }) : "—"}</span>
+                          <span style={{ fontSize: 13, flexShrink: 0 }}>{nt.icon}</span>
+                          <span style={{ flex: 1, color: "#555", lineHeight: 1.4 }}><span style={{ fontWeight: 600, color: "#333" }}>{item.author || "—"}</span> · {item.text}</span>
+                        </div>
+                      );
+                    }
+                    const toSm = (CONTACT_STATUS_META as any)[item.to] || { label: item.to, color: "#888", bg: "#f3f4f6" };
+                    const fromSm = item.from ? (CONTACT_STATUS_META as any)[item.from] : null;
+                    return (
+                      <div key={item.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", fontSize: 11, padding: "6px 8px", background: "#f0f6ff", borderRadius: 7 }}>
+                        <span style={{ flexShrink: 0, color: "#bbb", minWidth: 60 }}>{item.timestamp ? new Date(item.timestamp).toLocaleDateString("en-MY", { day: "numeric", month: "short" }) : "—"}</span>
+                        <span style={{ fontSize: 13, flexShrink: 0 }}>🔄</span>
+                        <span style={{ flex: 1, display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                          <span style={{ color: "#888" }}>{item.by || "—"}</span>
+                          {fromSm && <><span style={{ color: fromSm.color, fontWeight: 600 }}>{fromSm.label}</span><span style={{ color: "#ccc" }}>→</span></>}
+                          <span style={{ color: toSm.color, fontWeight: 700 }}>{toSm.label}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {/* Notes */}
+          {/* Add note */}
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1.5px solid #e8efff" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Notes {(c.notes || []).length > 0 && <span style={{ color: "#1a56db" }}>({(c.notes || []).length})</span>}</div>
-            {(c.notes || []).length > 0 && (
-              <div className="notes-feed">
-                {(c.notes as any[]).map((n: any) => (
-                  <div key={n.id} className="note-item">
-                    <div className="note-meta"><span>{n.author || "—"}</span><span>{fmtNoteTime(n.timestamp)}</span></div>
-                    <div className="note-text">{n.text}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#aaa", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 8 }}>Add Activity</div>
+            <div style={{ display: "flex", gap: 5, marginBottom: 8, flexWrap: "wrap" }}>
+              {NOTE_TYPES.map(t => (
+                <button key={t.key} onClick={() => setNoteType(t.key)}
+                  style={{ padding: "4px 10px", borderRadius: 20, border: `1.5px solid ${noteType === t.key ? t.color : "#e5e5e5"}`, background: noteType === t.key ? t.color + "18" : "#fff", color: noteType === t.key ? t.color : "#888", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
             <div style={{ display: "flex", gap: 6 }}>
-              <input value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && noteText.trim()) { onAddNote(c.id, noteText, authorName); setNoteText(""); } }} placeholder="Add a note…" style={{ flex: 1, border: "1.5px solid #e5e5e5", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontFamily: "inherit", outline: "none" }} onFocus={e => e.target.style.borderColor = "#1a56db"} onBlur={e => e.target.style.borderColor = "#e5e5e5"} />
-              <button onClick={() => { if (noteText.trim()) { onAddNote(c.id, noteText, authorName); setNoteText(""); } }} style={{ padding: "6px 12px", borderRadius: 8, border: "1.5px solid #1a56db", background: "#1a56db", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Add</button>
+              <input value={noteText} onChange={e => setNoteText(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && noteText.trim()) { onAddNote(c.id, noteText, authorName, noteType); setNoteText(""); } }}
+                placeholder={`Add ${NOTE_TYPES.find(t => t.key === noteType)?.label || "note"}…`}
+                style={{ flex: 1, border: "1.5px solid #e5e5e5", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontFamily: "inherit", outline: "none" }}
+                onFocus={e => (e.target.style.borderColor = "#1a56db")} onBlur={e => (e.target.style.borderColor = "#e5e5e5")} />
+              <button onClick={() => { if (noteText.trim()) { onAddNote(c.id, noteText, authorName, noteType); setNoteText(""); } }}
+                style={{ padding: "6px 12px", borderRadius: 8, border: "1.5px solid #1a56db", background: "#1a56db", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Add</button>
             </div>
           </div>
 

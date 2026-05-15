@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { hashPin } from "../lib/security";
-import { uid } from "../lib/utils";
-import type { DbBlob, ToastAction } from "../types";
+import { uid, initials } from "../lib/utils";
+import { AVATAR_COLORS } from "../lib/constants";
+import type { DbBlob, Member, ToastAction } from "../types";
 
 interface Props {
   db: DbBlob;
   updateDb: (fn: (db: any) => void) => void;
   showToast: (msg: string, action?: ToastAction) => void;
+  members: Member[];
 }
 
 // Manager-only settings: PIN management, daily call/interested targets, WhatsApp templates.
-export function SettingsPage({ db, updateDb, showToast }: Props) {
+export function SettingsPage({ db, updateDb, showToast, members }: Props) {
   const settings = db.settings || {};
   const callTarget = parseInt(String(settings.callTarget || 0)) || 0;
   const intTarget  = parseInt(String(settings.intTarget  || 0)) || 0;
@@ -150,11 +152,74 @@ export function SettingsPage({ db, updateDb, showToast }: Props) {
         </div>
       </div>
 
-      <button className="primary-btn" style={{ width: "100%", padding: 14, fontSize: 14 }} onClick={saveSettings}>Save Settings</button>
+      <button className="primary-btn" style={{ width: "100%", padding: 14, fontSize: 14 }} onClick={saveSettings}>Save Global Settings</button>
 
       <div style={{ marginTop: 16, padding: "14px 18px", background: "#fffbeb", border: "1.5px solid #fde68a", borderRadius: 12, fontSize: 13, color: "#92400e" }}>
         Changing PINs takes effect on next login. Remember the new PINs before locking the app.
       </div>
+
+      {/* Per-agent target overrides */}
+      {members.length > 0 && (
+        <div className="card" style={{ marginTop: 20, marginBottom: 20 }}>
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #f0f0f0" }}>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>Per-Agent Targets</div>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>Override the global targets for specific members. Leave blank to use global.</div>
+          </div>
+          <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+            {members.map(m => {
+              const existing = db.settings?.agentTargets?.[m.id] || {};
+              return (
+                <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: "#fafafa", borderRadius: 10, border: "1.5px solid #ebebeb" }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 9, background: AVATAR_COLORS[m.colorIdx % AVATAR_COLORS.length][0], display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: "#fff", flexShrink: 0 }}>{initials(m.name)}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, flex: 1, minWidth: 80 }}>{m.name}</div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#888", marginBottom: 3 }}>CALLS/DAY</div>
+                      <input
+                        type="number" min={0} placeholder={String(db.settings?.callTarget || "—")}
+                        defaultValue={existing.callTarget ?? ""}
+                        style={{ width: 70, border: "1.5px solid #e5e5e5", borderRadius: 7, padding: "5px 8px", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+                        onBlur={e => {
+                          const v = parseInt(e.target.value) || undefined;
+                          updateDb((d: any) => {
+                            if (!d.settings) d.settings = {};
+                            if (!d.settings.agentTargets) d.settings.agentTargets = {};
+                            if (!d.settings.agentTargets[m.id]) d.settings.agentTargets[m.id] = {};
+                            if (v) d.settings.agentTargets[m.id].callTarget = v;
+                            else delete d.settings.agentTargets[m.id].callTarget;
+                          });
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: "#888", marginBottom: 3 }}>INT/DAY</div>
+                      <input
+                        type="number" min={0} placeholder={String(db.settings?.intTarget || "—")}
+                        defaultValue={existing.intTarget ?? ""}
+                        style={{ width: 70, border: "1.5px solid #e5e5e5", borderRadius: 7, padding: "5px 8px", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+                        onBlur={e => {
+                          const v = parseInt(e.target.value) || undefined;
+                          updateDb((d: any) => {
+                            if (!d.settings) d.settings = {};
+                            if (!d.settings.agentTargets) d.settings.agentTargets = {};
+                            if (!d.settings.agentTargets[m.id]) d.settings.agentTargets[m.id] = {};
+                            if (v) d.settings.agentTargets[m.id].intTarget = v;
+                            else delete d.settings.agentTargets[m.id].intTarget;
+                          });
+                        }}
+                      />
+                    </div>
+                    {(existing.callTarget || existing.intTarget) && (
+                      <button onClick={() => updateDb((d: any) => { if (d.settings?.agentTargets) delete d.settings.agentTargets[m.id]; })}
+                        style={{ fontSize: 11, color: "#ef4444", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: "4px 8px" }}>Reset</button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* WhatsApp templates */}
       <div className="card" style={{ marginTop: 20 }}>

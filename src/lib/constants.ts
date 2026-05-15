@@ -53,5 +53,23 @@ export const REJECTION_REASONS = [
 
 export type RejectionReasonKey = typeof REJECTION_REASONS[number]["key"];
 
+export const STAGE_PROBABILITY: Record<string, number> = {
+  not_answered: 2,
+  hangup:       2,
+  contacted:    5,
+  callback:     20,
+  interested:   50,
+  closed_won:   100,
+  closed_lost:  0,
+};
+
+export const NOTE_TYPES = [
+  { key: "call",     label: "Call",     icon: "📞", color: "#2563eb" },
+  { key: "whatsapp", label: "WhatsApp", icon: "💬", color: "#059669" },
+  { key: "email",    label: "Email",    icon: "📧", color: "#7c3aed" },
+  { key: "meeting",  label: "Meeting",  icon: "🤝", color: "#d97706" },
+  { key: "note",     label: "Note",     icon: "📝", color: "#6b7280" },
+] as const;
+
 export const MAX_PIN_ATTEMPTS = 5;
 export const PIN_LOCKOUT_MS = 30_000;

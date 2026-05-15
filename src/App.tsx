@@ -288,7 +288,7 @@ export default function App() {
 
         {/* SETTINGS (manager only) */}
         {page === "settings" && isManager && (
-          <SettingsPage db={db} updateDb={updateDb} showToast={showToast} />
+          <SettingsPage db={db} updateDb={updateDb} showToast={showToast} members={members} />
         )}
 
         {/* ── MODALS ─────────────────────────────────────────────────────────── */}

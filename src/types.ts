@@ -102,6 +102,7 @@ export interface Settings {
   tplTab?: string;
   waTemplates?: WhatsappTemplate[];
   qaSelectedCampaign?: string;
+  agentTargets?: Record<string, { callTarget?: number; intTarget?: number }>;
 }
 
 export interface DbBlob {
@@ -117,6 +118,7 @@ export interface ContactNote {
   text: string;
   timestamp: string;
   author: string;
+  noteType?: string;
 }
 
 export interface ContactHistoryEntry {

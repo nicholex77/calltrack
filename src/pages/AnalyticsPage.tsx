@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { initials, todayKey, weekStart, addDays, scoreContact } from "../lib/utils";
-import { AVATAR_COLORS, CONTACT_STATUS_META, REJECTION_REASONS } from "../lib/constants";
+import { AVATAR_COLORS, CONTACT_STATUS_META, REJECTION_REASONS, STAGE_PROBABILITY } from "../lib/constants";
 import type { Contact, Member } from "../types";
 
 interface Props {
@@ -240,6 +240,11 @@ function PipelineTab({ contacts }: { contacts: Contact[] }) {
   const closedLost = contacts.filter(c => c.status === "closed_lost").length;
   const notAnswered = contacts.filter(c => ["not_answered", "hangup"].includes(c.status)).length;
   const winRate = pct(closedWon, closedWon + closedLost);
+  const grossPipeline = contacts.filter(c => c.status !== "closed_lost").reduce((s, c) => s + (c.dealValue || 0), 0);
+  const weightedForecast = Math.round(
+    contacts.filter(c => c.status !== "closed_lost" && (c.dealValue || 0) > 0)
+      .reduce((s, c) => s + (c.dealValue || 0) * (STAGE_PROBABILITY[c.status] || 0) / 100, 0)
+  );
 
   const funnelSteps = [
     { label: "Total Contacts", val: total, color: "#6366f1", bg: "#eef2ff" },
@@ -263,14 +268,19 @@ function PipelineTab({ contacts }: { contacts: Contact[] }) {
   return (
     <div>
       {/* Win rate banner */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
-        <div style={{ flex: 1, background: "#dcfce7", border: "1.5px solid #059669" + "33", borderRadius: 12, padding: "14px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", textTransform: "uppercase", letterSpacing: .5, marginBottom: 4 }}>Win Rate</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 10, marginBottom: 16 }}>
+        <div style={{ background: "#dcfce7", border: "1.5px solid #05996933", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>Win Rate</div>
           <div style={{ fontSize: 28, fontWeight: 800, color: "#059669" }}>{winRate}%</div>
           <div style={{ fontSize: 11, color: "#888" }}>{closedWon} won · {closedLost} lost</div>
         </div>
-        <div style={{ flex: 1, background: "#fff1f2", border: "1.5px solid #ef444433", borderRadius: 12, padding: "14px 16px" }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", textTransform: "uppercase", letterSpacing: .5, marginBottom: 4 }}>Not Reached</div>
+        <div style={{ background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>Weighted Forecast</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#059669" }}>{weightedForecast > 0 ? `RM ${weightedForecast.toLocaleString()}` : "—"}</div>
+          <div style={{ fontSize: 11, color: "#888" }}>of RM {grossPipeline.toLocaleString()} gross</div>
+        </div>
+        <div style={{ background: "#fff1f2", border: "1.5px solid #ef444433", borderRadius: 12, padding: "14px 16px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#ef4444", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 4 }}>Not Reached</div>
           <div style={{ fontSize: 28, fontWeight: 800, color: "#ef4444" }}>{notAnswered}</div>
           <div style={{ fontSize: 11, color: "#888" }}>{pct(notAnswered, total)}% of total</div>
         </div>
@@ -303,13 +313,19 @@ function PipelineTab({ contacts }: { contacts: Contact[] }) {
           <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Stage Velocity</div>
           <div style={{ fontSize: 12, color: "#888", marginBottom: 14 }}>Avg days contacts have been in each status (lower is better for active stages)</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {velocityRows.map(r => (
-              <div key={r.status} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: r.color, background: r.bg, padding: "2px 8px", borderRadius: 20, minWidth: 90, textAlign: "center" }}>{r.label}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#111", minWidth: 30 }}>{r.avg ?? "—"}d</span>
-                <span style={{ fontSize: 11, color: "#aaa" }}>{r.count} contacts</span>
-              </div>
-            ))}
+            {velocityRows.map(r => {
+              const prob = STAGE_PROBABILITY[r.status];
+              return (
+                <div key={r.status} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: r.color, background: r.bg, padding: "2px 8px", borderRadius: 20, minWidth: 90, textAlign: "center" as const }}>{r.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#111", minWidth: 30 }}>{r.avg ?? "—"}d</span>
+                  <span style={{ fontSize: 11, color: "#aaa" }}>{r.count} contacts</span>
+                  {prob !== undefined && (
+                    <span style={{ fontSize: 11, fontWeight: 700, color: prob >= 50 ? "#059669" : prob >= 20 ? "#d97706" : "#9ca3af", marginLeft: "auto" }}>{prob}% win prob</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

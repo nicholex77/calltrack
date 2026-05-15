@@ -243,12 +243,12 @@ export function ContactsPage({
     });
   }, [setContacts]);
 
-  const addContactNote = useCallback((contactId:string, text:string, author:string) => {
+  const addContactNote = useCallback((contactId:string, text:string, author:string, noteType?:string) => {
     if(!text.trim()) return;
     setContacts(prev => {
       const next = prev.map((c:any) => {
         if(c.id!==contactId) return c;
-        const notes = [{id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—"}, ...(c.notes||[])];
+        const notes = [{id:uid(),text:text.trim(),timestamp:new Date().toISOString(),author:author||"—",noteType:noteType||"note"}, ...(c.notes||[])];
         return {...c, notes, lastTouched:currentDate};
       });
       const u = next.find((c:any) => c.id===contactId); if(u) { saveLocalContacts(next); upsertContact(u as any); }

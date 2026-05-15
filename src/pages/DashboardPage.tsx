@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { todayKey, fmtNoteTime, initials } from "../lib/utils";
-import { AVATAR_COLORS, CONTACT_STATUS_META } from "../lib/constants";
+import { AVATAR_COLORS, CONTACT_STATUS_META, STAGE_PROBABILITY } from "../lib/constants";
 import { TargetBar } from "../components/TargetBar";
 import type { Contact, Member } from "../types";
 
@@ -88,6 +88,21 @@ export function DashboardPage({ contacts, members, isManager, loggedInMemberName
     return [...statusEvents, ...noteEvents]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 12);
+  }, [visible]);
+
+  // ── Revenue forecast + stale ─────────────────────────────────────────────
+  const forecast = useMemo(() => {
+    const weighted = Math.round(
+      visible
+        .filter(c => c.status !== "closed_lost" && (c.dealValue || 0) > 0)
+        .reduce((s, c) => s + (c.dealValue || 0) * (STAGE_PROBABILITY[c.status] || 0) / 100, 0)
+    );
+    const stale = visible.filter(c => {
+      if (c.status === "closed_won" || c.status === "closed_lost") return false;
+      if (!c.lastTouched) return true;
+      return Math.floor((Date.now() - new Date(c.lastTouched + "T00:00:00").getTime()) / 86400000) > 7;
+    });
+    return { weighted, stale };
   }, [visible]);
 
   // ── Monthly targets ───────────────────────────────────────────────────────
@@ -219,7 +234,7 @@ export function DashboardPage({ contacts, members, isManager, loggedInMemberName
 
       {/* Monthly targets */}
       {(callTarget > 0 || intTarget > 0) && (
-        <div className="card" style={{ padding: 20 }}>
+        <div className="card" style={{ padding: 20, marginBottom: 16 }}>
           <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 14 }}>Monthly Progress <span style={{ fontWeight: 500, color: "#888", fontSize: 12 }}>(~22 working days)</span></div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {callTarget > 0 && <TargetBar label="Calls This Month" value={monthCalls} target={monthCallTarget} />}
@@ -227,6 +242,22 @@ export function DashboardPage({ contacts, members, isManager, loggedInMemberName
           </div>
         </div>
       )}
+
+      {/* Revenue Forecast + Stale */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 14, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#059669", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 6 }}>Weighted Forecast</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: "#059669" }}>
+            {forecast.weighted > 0 ? `RM ${forecast.weighted.toLocaleString()}` : "—"}
+          </div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Expected revenue by stage probability</div>
+        </div>
+        <div style={{ background: forecast.stale.length > 0 ? "#fffbeb" : "#f9fafb", border: `1.5px solid ${forecast.stale.length > 0 ? "#fde68a" : "#e5e7eb"}`, borderRadius: 14, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: forecast.stale.length > 0 ? "#d97706" : "#9ca3af", textTransform: "uppercase" as const, letterSpacing: .5, marginBottom: 6 }}>Stale Contacts</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: forecast.stale.length > 0 ? "#d97706" : "#9ca3af" }}>{forecast.stale.length}</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4 }}>Active contacts not touched in 7+ days</div>
+        </div>
+      </div>
     </div>
   );
 }
